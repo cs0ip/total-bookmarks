@@ -1,5 +1,5 @@
-<script>
-  let { bookmark } = $props();
+<script lang="ts">
+  let { bookmark }: { bookmark: browser.bookmarks.BookmarkTreeNode } = $props();
 </script>
 
 <span class="bookmark-details">

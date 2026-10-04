@@ -1,12 +1,16 @@
-<script>
+<script lang="ts">
   import { onMount } from 'svelte';
   import BookmarkList from './components/BookmarkList.svelte';
 
-  const sides = [0, 1];
-  let roots = $state([]);
-  let nodesById = $state(new Map());
+  type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
+  type Side = 0 | 1;
+  type PaneState = { folderId: string; selectedId: string };
+
+  const sides: Side[] = [0, 1];
+  let roots: BookmarkNode[] = $state([]);
+  let nodesById = $state(new Map<string, BookmarkNode>());
   let rootId = $state('');
-  let panes = $state([
+  let panes: PaneState[] = $state([
     { folderId: '', selectedId: '' },
     { folderId: '', selectedId: '' }
   ]);
@@ -14,24 +18,29 @@
   let busy = $state(false);
   let error = $state('');
 
-  function findNode(id) {
+  function findNode(id: string | undefined): BookmarkNode | null {
+    if (!id) return null;
     return nodesById.get(id) ?? null;
   }
 
-  function currentFolder(side) {
+  function otherSide(side: Side): Side {
+    return side === 0 ? 1 : 0;
+  }
+
+  function currentFolder(side: Side): BookmarkNode | null {
     return findNode(panes[side].folderId);
   }
 
-  function itemsIn(side) {
+  function itemsIn(side: Side): BookmarkNode[] {
     return currentFolder(side)?.children ?? [];
   }
 
-  function selectedItem(side) {
+  function selectedItem(side: Side): BookmarkNode | null {
     return findNode(panes[side].selectedId);
   }
 
-  function itemTitle(item) {
-    return item.title || (item.type === 'separator' ? 'Разделитель' : 'Без названия');
+  function itemTitle(item: BookmarkNode | null): string {
+    return item?.title || (item?.type === 'separator' ? 'Разделитель' : 'Без названия');
   }
 
   async function loadTree() {
@@ -39,10 +48,11 @@
     error = '';
     try {
       roots = await browser.bookmarks.getTree();
-      const index = new Map();
+      const index = new Map<string, BookmarkNode>();
       const pending = [...roots];
       while (pending.length) {
         const node = pending.pop();
+        if (!node) break;
         index.set(node.id, node);
         if (node.children) pending.push(...node.children);
       }
@@ -60,26 +70,26 @@
     }
   }
 
-  function navigate(side, id) {
+  function navigate(side: Side, id: string): void {
     const folder = findNode(id);
     if (!folder?.children) return;
     panes[side].folderId = id;
     panes[side].selectedId = '';
   }
 
-  function goUp(side) {
+  function goUp(side: Side): void {
     const parentId = currentFolder(side)?.parentId;
     if (parentId) navigate(side, parentId);
   }
 
-  function canMove(from) {
+  function canMove(from: Side): boolean {
     const source = selectedItem(from);
-    const destination = currentFolder(1 - from);
+    const destination = currentFolder(otherSide(from));
     if (!source || !destination || busy || loading) return false;
     if (source.unmodifiable || source.parentId === rootId) return false;
     if (destination.id === rootId || destination.id === source.parentId) return false;
 
-    let folder = destination;
+    let folder: BookmarkNode | null = destination;
     while (folder) {
       if (folder.id === source.id) return false;
       folder = findNode(folder.parentId);
@@ -87,10 +97,10 @@
     return true;
   }
 
-  async function moveSelected(from) {
+  async function moveSelected(from: Side): Promise<void> {
     if (!canMove(from)) return;
     const sourceId = panes[from].selectedId;
-    const destinationId = panes[1 - from].folderId;
+    const destinationId = panes[otherSide(from)].folderId;
     busy = true;
     error = '';
     try {
@@ -105,7 +115,7 @@
     }
   }
 
-  async function openBookmark(url) {
+  async function openBookmark(url: string): Promise<void> {
     try {
       await browser.tabs.create({ url });
     } catch (cause) {

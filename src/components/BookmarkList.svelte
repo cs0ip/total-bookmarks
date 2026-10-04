@@ -1,9 +1,19 @@
-<script>
+<script lang="ts">
   import Bookmark from './Bookmark.svelte';
 
-  let { items, selectedId, loading = false, onSelect, onOpenFolder, onOpenBookmark } = $props();
+  type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
+  type Props = {
+    items: BookmarkNode[];
+    selectedId: string;
+    loading?: boolean;
+    onSelect: (id: string) => void;
+    onOpenFolder: (id: string) => void;
+    onOpenBookmark: (url: string) => void | Promise<void>;
+  };
 
-  function itemTitle(item) {
+  let { items, selectedId, loading = false, onSelect, onOpenFolder, onOpenBookmark }: Props = $props();
+
+  function itemTitle(item: BookmarkNode): string {
     return item.title || (item.type === 'separator' ? 'Разделитель' : 'Без названия');
   }
 </script>
@@ -39,7 +49,9 @@
             class="item-open"
             type="button"
             aria-label={`Открыть ${itemTitle(item)} в новой вкладке`}
-            onclick={() => onOpenBookmark(item.url)}
+            onclick={() => {
+              if (item.url) void onOpenBookmark(item.url);
+            }}
           >↗</button>
         {/if}
       </div>
