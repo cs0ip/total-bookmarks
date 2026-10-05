@@ -17,6 +17,7 @@ export async function runBookmarkTests() {
   const right = document.querySelector('[aria-label="Правая панель"]');
   const row = (pane, title) => [...pane.querySelectorAll('button[aria-pressed]')]
     .find((button) => button.textContent.includes(title));
+  const parentRow = (pane) => pane.querySelector('button[aria-pressed][aria-label="На уровень выше"]');
   const open = (pane, title) => row(pane, title).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   const tree = await browser.bookmarks.getTree();
   const toolbar = tree[0].children.find((node) => node.id === 'toolbar_____') ?? tree[0].children[0];
@@ -24,11 +25,27 @@ export async function runBookmarkTests() {
   const originalGetTree = browser.bookmarks.getTree;
   try {
     assert(![...document.querySelectorAll('button')].some((button) => button.textContent === 'Обновить'), 'The manual refresh button is removed');
+    assert(!parentRow(right), 'The root list has no parent-folder entry');
     await until(() => row(left, 'Event fixtures'));
     open(left, 'Event fixtures');
     open(right, toolbar.title);
     await until(() => row(right, 'Event fixtures'));
     open(right, 'Event fixtures');
+    await until(() => parentRow(left) && left.querySelector('h2').textContent === 'Event fixtures');
+    const parent = parentRow(left);
+    assert(left.querySelector('button[aria-pressed]') === parent && parent.textContent.includes('..') && parent.textContent.includes('↑') && left.querySelector('header').textContent.includes('Элементов: 0'), 'An empty folder starts with the up-arrow parent entry without counting it as a bookmark');
+    parent.click();
+    await until(() => parent.getAttribute('aria-pressed') === 'true');
+    const transient = await browser.bookmarks.create({ parentId: fixtures.id, title: 'Transient parent fixture' });
+    await until(() => row(left, transient.title));
+    assert(parentRow(left).getAttribute('aria-pressed') === 'true', 'An automatic tree refresh preserves selection of the parent entry');
+    await browser.bookmarks.remove(transient.id);
+    await until(() => !row(left, transient.title));
+    parentRow(left).focus();
+    parentRow(left).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await until(() => left.querySelector('h2').textContent === toolbar.title);
+    assert(right.querySelector('h2').textContent === 'Event fixtures', 'Enter on the selected parent entry navigates only its own panel');
+    open(left, 'Event fixtures');
 
     const item = await browser.bookmarks.create({ parentId: fixtures.id, title: 'Created by Firefox', url: 'about:blank' });
     await until(() => row(left, item.title) && row(right, item.title));
@@ -68,11 +85,19 @@ export async function runBookmarkTests() {
     row(right, 'Destination').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     await until(() => right.querySelector('h2').textContent === 'Destination');
     assert(true, 'A double click opens a folder in its own panel');
+    parentRow(right).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await until(() => right.querySelector('h2').textContent === 'Renamed folder');
+    assert(left.querySelector('h2').textContent === 'Renamed folder', 'A double click on the parent entry returns to the parent folder');
+    open(right, 'Destination');
+    parentRow(left).click();
+    await until(() => parentRow(left).getAttribute('aria-pressed') === 'true');
+    assert(document.querySelector('[aria-label="Переместить выбранное вправо"]').disabled, 'The parent-folder entry cannot be moved between panels');
+    row(left, 'Renamed by Firefox').click();
     await browser.bookmarks.move(item.id, { parentId: destination.id });
     await until(() => !row(left, 'Renamed by Firefox') && row(right, 'Renamed by Firefox'));
     assert(left.querySelector('footer').textContent.includes('Выберите элемент'), 'Moving a bookmark updates both folders and clears selection in its old folder');
     await browser.bookmarks.move(second.id, { index: 0 });
-    await until(() => left.querySelector('button[aria-pressed]').textContent.includes('Second bookmark'));
+    await until(() => left.querySelector('button[aria-pressed]:not([aria-label="На уровень выше"])').textContent.includes('Second bookmark'));
     assert(true, 'Moving within a folder updates the displayed order');
     await browser.bookmarks.remove(item.id);
     await until(() => !row(right, 'Renamed by Firefox'));
@@ -111,6 +136,7 @@ export async function runBookmarkTests() {
     await browser.bookmarks.removeTree(fixtures.id);
     await until(() => left.querySelector('h2').textContent === 'Все закладки' && right.querySelector('h2').textContent === 'Все закладки');
     assert(true, 'Deleting an open folder returns both affected panels to the root');
+    assert(!parentRow(left) && !parentRow(right), 'Parent entries disappear from both panels after returning to the root');
     return results;
   } finally {
     browser.bookmarks.getTree = originalGetTree;

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import BookmarkList from './BookmarkList.svelte';
+  import BookmarkList, { PARENT_FOLDER_ITEM_ID } from './BookmarkList.svelte';
 
   type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
   type Side = 0 | 1;
@@ -16,7 +16,6 @@
     loading: boolean;
     canMoveRight: boolean;
     canMoveLeft: boolean;
-    onGoUp: (side: Side) => void;
     onSelect: (side: Side, id: string) => void;
     onOpenFolder: (side: Side, id: string) => void;
     onOpenBookmark: (url: string) => void | Promise<void>;
@@ -29,7 +28,6 @@
     loading,
     canMoveRight,
     canMoveLeft,
-    onGoUp,
     onSelect,
     onOpenFolder,
     onOpenBookmark,
@@ -48,26 +46,14 @@
       aria-label={pane.side === 0 ? 'Левая панель' : 'Правая панель'}
     >
       <header class="border-b border-[#e6eaf1] px-4 pt-[14px] pb-3">
-        <span class="text-xs font-semibold tracking-[.04em] text-[#69748b] uppercase">
-          {pane.side === 0 ? 'Левая панель' : 'Правая панель'}
-        </span>
-        <div class="mt-2 mb-1 flex items-center gap-[9px]">
-          <button
-            class="flex size-[30px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-[#d5dbea] bg-white text-[19px] text-[#34405a] disabled:cursor-not-allowed disabled:opacity-[.45] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5f44b4]"
-            type="button"
-            title="На уровень выше"
-            aria-label="На уровень выше"
-            onclick={() => onGoUp(pane.side)}
-            disabled={!pane.folder?.parentId}
-          >↑</button>
-          <h2 class="truncate text-[17px]">{pane.folder?.title || 'Все закладки'}</h2>
-        </div>
+        <h2 class="mb-1 truncate text-[17px]">{pane.folder?.title || 'Все закладки'}</h2>
         <span class="text-xs text-[#758097]">Элементов: {pane.items.length}</span>
       </header>
 
       <BookmarkList
         items={pane.items}
         selectedId={pane.selectedId}
+        parentFolderId={pane.folder?.parentId}
         {loading}
         onSelect={(id) => onSelect(pane.side, id)}
         onOpenFolder={(id) => onOpenFolder(pane.side, id)}
@@ -75,7 +61,9 @@
       />
 
       <footer class="truncate border-t border-[#e6eaf1] px-4 py-[10px] text-[#69748b]">
-        {#if pane.selected}
+        {#if pane.selectedId === PARENT_FOLDER_ITEM_ID}
+          Выбрано: ..
+        {:else if pane.selected}
           Выбрано: {itemTitle(pane.selected)}
         {:else}
           Выберите элемент

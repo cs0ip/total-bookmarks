@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import BookmarkPanels from './components/BookmarkPanels.svelte';
+  import { PARENT_FOLDER_ITEM_ID } from './components/BookmarkList.svelte';
   import { ICON_ORIGINS } from './icons/protocol';
 
   type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
@@ -93,7 +94,8 @@
       rootId = roots[0]?.id ?? '';
       for (const pane of panes) {
         if (!findNode(pane.folderId)) pane.folderId = rootId;
-        if (findNode(pane.selectedId)?.parentId !== pane.folderId) pane.selectedId = '';
+        const parentSelected = pane.selectedId === PARENT_FOLDER_ITEM_ID && findNode(pane.folderId)?.parentId;
+        if (!parentSelected && findNode(pane.selectedId)?.parentId !== pane.folderId) pane.selectedId = '';
       }
     } catch (cause) {
       if (!isActive()) return;
@@ -109,11 +111,6 @@
     if (!folder?.children) return;
     panes[side].folderId = id;
     panes[side].selectedId = '';
-  }
-
-  function goUp(side: Side): void {
-    const parentId = currentFolder(side)?.parentId;
-    if (parentId) navigate(side, parentId);
   }
 
   function canMove(from: Side): boolean {
@@ -253,7 +250,6 @@
     loading={loading && roots.length === 0}
     canMoveRight={canMove(0)}
     canMoveLeft={canMove(1)}
-    onGoUp={goUp}
     onSelect={(side, id) => (panes[side].selectedId = id)}
     onOpenFolder={navigate}
     onOpenBookmark={openBookmark}
