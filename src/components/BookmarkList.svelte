@@ -16,37 +16,42 @@
   function itemTitle(item: BookmarkNode): string {
     return item.title || (item.type === 'separator' ? 'Разделитель' : 'Без названия');
   }
+
 </script>
 
-<div class="items">
+<div class="min-h-0 flex-1 overflow-auto p-[6px]">
   {#if loading}
-    <p class="empty">Загрузка…</p>
+    <p class="m-0 px-[14px] py-[30px] text-center text-[#758097]">Загрузка…</p>
   {:else if items.length === 0}
-    <p class="empty">Папка пуста</p>
+    <p class="m-0 px-[14px] py-[30px] text-center text-[#758097]">Папка пуста</p>
   {:else}
     {#each items as item (item.id)}
-      <div class:selected={selectedId === item.id} class="item">
+      <div class={`flex min-w-0 items-center gap-1 rounded-lg ${selectedId === item.id ? 'bg-[#ebe6fb]' : 'hover:bg-[#f5f6fb]'}`}>
         <button
-          class="item-select"
+          class="flex min-w-0 flex-1 cursor-pointer items-center gap-[10px] border-0 bg-transparent p-[9px] text-left text-inherit focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5f44b4]"
           type="button"
           aria-pressed={selectedId === item.id}
           onclick={() => onSelect(item.id)}
         >
-          <span class="item-symbol" aria-hidden="true">{item.children ? '▣' : item.type === 'separator' ? '—' : '↗'}</span>
           {#if item.url}
             <Bookmark bookmark={item} />
           {:else}
-            <span class="item-text">
-              <span class="item-title">{itemTitle(item)}</span>
-              <span class="item-type">{item.type === 'separator' ? 'Разделитель' : 'Папка'}</span>
+            <span class="w-[22px] shrink-0 text-center text-[18px] text-[#6243ba]" aria-hidden="true">{item.children ? '▣' : '—'}</span>
+            <span class="flex min-w-0 flex-col">
+              <span class="truncate font-semibold">{itemTitle(item)}</span>
+              <span class="text-xs text-[#738098]">{item.type === 'separator' ? 'Разделитель' : 'Папка'}</span>
             </span>
           {/if}
         </button>
         {#if item.children}
-          <button class="item-open" type="button" onclick={() => onOpenFolder(item.id)}>Открыть</button>
+          <button
+            class="mr-2 shrink-0 cursor-pointer rounded-lg border border-[#d5dbea] bg-white px-2 py-[5px] text-xs text-[#34405a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5f44b4]"
+            type="button"
+            onclick={() => onOpenFolder(item.id)}
+          >Открыть</button>
         {:else if item.url}
           <button
-            class="item-open"
+            class="mr-2 shrink-0 cursor-pointer rounded-lg border border-[#d5dbea] bg-white px-2 py-[5px] text-xs text-[#34405a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5f44b4]"
             type="button"
             aria-label={`Открыть ${itemTitle(item)} в новой вкладке`}
             onclick={() => {
@@ -58,17 +63,3 @@
     {/each}
   {/if}
 </div>
-
-<style>
-  .items { flex: 1; min-height: 0; overflow: auto; padding: 6px; }
-  .item { display: flex; align-items: center; gap: 4px; min-width: 0; border-radius: 8px; }
-  .item:hover { background: #f5f6fb; }
-  .item.selected { background: #ebe6fb; }
-  .item-select { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; padding: 9px; border: 0; background: transparent; color: inherit; text-align: left; }
-  .item-symbol { width: 22px; flex: none; color: #6243ba; font-size: 18px; text-align: center; }
-  .item-text { display: flex; flex-direction: column; min-width: 0; }
-  .item-title { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-  .item-type { color: #738098; font-size: 12px; }
-  .item-open { flex: none; margin-right: 8px; padding: 5px 8px; border: 1px solid #d5dbea; border-radius: 8px; background: #fff; color: #34405a; font-size: 12px; }
-  .empty { margin: 0; padding: 30px 14px; color: #758097; text-align: center; }
-</style>

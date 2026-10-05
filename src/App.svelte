@@ -1,12 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import BookmarkList from './components/BookmarkList.svelte';
+  import BookmarkPanels from './components/BookmarkPanels.svelte';
 
   type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
   type Side = 0 | 1;
   type PaneState = { folderId: string; selectedId: string };
 
-  const sides: Side[] = [0, 1];
   let roots: BookmarkNode[] = $state([]);
   let nodesById = $state(new Map<string, BookmarkNode>());
   let rootId = $state('');
@@ -39,8 +38,14 @@
     return findNode(panes[side].selectedId);
   }
 
-  function itemTitle(item: BookmarkNode | null): string {
-    return item?.title || (item?.type === 'separator' ? 'Разделитель' : 'Без названия');
+  function paneView(side: Side) {
+    return {
+      side,
+      folder: currentFolder(side),
+      items: itemsIn(side),
+      selectedId: panes[side].selectedId,
+      selected: selectedItem(side)
+    };
   }
 
   async function loadTree() {
@@ -133,110 +138,37 @@
   <title>Total Bookmarks — менеджер закладок</title>
 </svelte:head>
 
-<main class="app">
-  <header class="topbar">
-    <div class="brand">
-      <img src="./icons/bookmark.svg" alt="" width="36" height="36" />
+<main class="flex min-h-screen flex-col gap-[18px] p-6 max-[700px]:p-[14px]">
+  <header class="flex items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <img class="size-9" src="./icons/bookmark.svg" alt="" />
       <div>
-        <h1>Total Bookmarks</h1>
-        <p>Двухпанельный менеджер закладок</p>
+        <h1 class="text-[21px] leading-[1.15]">Total Bookmarks</h1>
+        <p class="mt-[3px] text-[#657088]">Двухпанельный менеджер закладок</p>
       </div>
     </div>
-    <button class="refresh" type="button" onclick={loadTree} disabled={loading || busy}>Обновить</button>
+    <button
+      class="cursor-pointer rounded-lg border border-[#d5dbea] bg-white px-[14px] py-2 text-[#34405a] disabled:cursor-not-allowed disabled:opacity-[.45] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5f44b4]"
+      type="button"
+      onclick={loadTree}
+      disabled={loading || busy}
+    >Обновить</button>
   </header>
 
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if error}
+    <p class="rounded-lg bg-[#fff1f1] px-[14px] py-[10px] text-[#a02c2c]" role="alert">{error}</p>
+  {/if}
 
-  <div class="workspace">
-    {#each sides as side}
-      <section class="pane" aria-label={side === 0 ? 'Левая панель' : 'Правая панель'}>
-        <header class="pane-header">
-          <span class="pane-label">{side === 0 ? 'Левая панель' : 'Правая панель'}</span>
-          <div class="location">
-            <button
-              class="up"
-              type="button"
-              title="На уровень выше"
-              aria-label="На уровень выше"
-              onclick={() => goUp(side)}
-              disabled={!currentFolder(side)?.parentId}
-            >↑</button>
-            <h2>{currentFolder(side)?.title || 'Все закладки'}</h2>
-          </div>
-          <span class="items-count">Элементов: {itemsIn(side).length}</span>
-        </header>
-
-        <BookmarkList
-          items={itemsIn(side)}
-          selectedId={panes[side].selectedId}
-          loading={loading && roots.length === 0}
-          onSelect={(id) => (panes[side].selectedId = id)}
-          onOpenFolder={(id) => navigate(side, id)}
-          onOpenBookmark={openBookmark}
-        />
-
-        <footer class="pane-footer">
-          {#if selectedItem(side)}
-            Выбрано: {itemTitle(selectedItem(side))}
-          {:else}
-            Выберите элемент
-          {/if}
-        </footer>
-      </section>
-
-      {#if side === 0}
-        <div class="moves" role="group" aria-label="Перемещение между панелями">
-          <button
-            type="button"
-            title="Переместить выбранное вправо"
-            aria-label="Переместить выбранное вправо"
-            onclick={() => moveSelected(0)}
-            disabled={!canMove(0)}
-          >→</button>
-          <button
-            type="button"
-            title="Переместить выбранное влево"
-            aria-label="Переместить выбранное влево"
-            onclick={() => moveSelected(1)}
-            disabled={!canMove(1)}
-          >←</button>
-        </div>
-      {/if}
-    {/each}
-  </div>
+  <BookmarkPanels
+    left={paneView(0)}
+    right={paneView(1)}
+    loading={loading && roots.length === 0}
+    canMoveRight={canMove(0)}
+    canMoveLeft={canMove(1)}
+    onGoUp={goUp}
+    onSelect={(side, id) => (panes[side].selectedId = id)}
+    onOpenFolder={navigate}
+    onOpenBookmark={openBookmark}
+    onMove={moveSelected}
+  />
 </main>
-
-<style>
-  :global(*) { box-sizing: border-box; }
-  :global(body) { margin: 0; background: #f4f6fa; color: #20273b; font: 14px/1.4 system-ui, sans-serif; }
-  :global(button) { font: inherit; cursor: pointer; }
-  :global(button:disabled) { cursor: not-allowed; opacity: 0.45; }
-  :global(button:focus-visible) { outline: 2px solid #5f44b4; outline-offset: 2px; }
-  .app { display: flex; flex-direction: column; min-height: 100vh; padding: 24px; gap: 18px; }
-  .topbar, .brand, .location, .moves { display: flex; align-items: center; }
-  .topbar { justify-content: space-between; gap: 16px; }
-  .brand { gap: 12px; }
-  h1, h2, p { margin: 0; }
-  h1 { font-size: 21px; line-height: 1.15; }
-  .brand p { margin-top: 3px; color: #657088; }
-  .refresh, .up, .moves button { border: 1px solid #d5dbea; border-radius: 8px; background: #fff; color: #34405a; }
-  .refresh { padding: 8px 14px; }
-  .error { padding: 10px 14px; border-radius: 8px; background: #fff1f1; color: #a02c2c; }
-  .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 52px minmax(0, 1fr); gap: 12px; flex: 1; min-height: 0; }
-  .pane { display: flex; flex-direction: column; min-width: 0; min-height: 360px; max-height: calc(100vh - 116px); overflow: hidden; border: 1px solid #dce2ed; border-radius: 12px; background: #fff; }
-  .pane-header { padding: 14px 16px 12px; border-bottom: 1px solid #e6eaf1; }
-  .pane-label { color: #69748b; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-  .location { gap: 9px; margin: 8px 0 4px; }
-  .up { width: 30px; height: 30px; flex: none; font-size: 19px; }
-  h2 { overflow: hidden; font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
-  .items-count { color: #758097; font-size: 12px; }
-  .pane-footer { overflow: hidden; padding: 10px 16px; border-top: 1px solid #e6eaf1; color: #69748b; text-overflow: ellipsis; white-space: nowrap; }
-  .moves { flex-direction: column; justify-content: center; gap: 10px; }
-  .moves button { width: 42px; height: 42px; color: #6243ba; font-size: 22px; }
-  @media (max-width: 700px) {
-    .app { padding: 14px; }
-    .workspace { grid-template-columns: minmax(0, 1fr); }
-    .pane { min-height: 260px; max-height: 45vh; }
-    .moves { flex-direction: row; }
-  }
-</style>

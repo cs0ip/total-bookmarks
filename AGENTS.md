@@ -7,9 +7,9 @@
 
 ## Устройство проекта
 
-- Расширение использует Firefox Manifest V3, Svelte 5 и Vite.
+- Расширение использует Firefox Manifest V3, Svelte 5, Vite и Tailwind CSS 4. Tailwind подключён через `@tailwindcss/vite`; общие стили импортируются из `src/app.css` в `src/main.ts`.
 - `src/App.svelte` содержит страницу менеджера закладок. У кнопки на панели браузера нет всплывающего окна: `src/background.ts` открывает `index.html` во вкладке.
-- Vite компилирует `src/background.ts` в `dist/background.js` и копирует `public/manifest.json` и `public/icons/` в `dist/`. Расширение запрашивает разрешение `bookmarks`.
+- Vite компилирует `src/background.ts` в `dist/background.js` и копирует `public/manifest.json` и `public/icons/` в `dist/`. Расширение запрашивает разрешение `bookmarks`; компонент закладки пытается загрузить иконку через `page-icon:`, хотя Firefox может блокировать такой адрес на странице расширения.
 - Исходники и скрипты компонентов Svelte написаны на TypeScript. Подсказки для WebExtension API в IDE обеспечивают `@types/firefox-webext-browser` и `tsconfig.json`; глобальный объект `browser` не нужно импортировать в исходники.
 - Команда `npm run dev` запускает `vite build --watch`, а не сервер разработки. После пересборки перезагрузите временное дополнение в Firefox.
 
@@ -19,3 +19,7 @@
 - Установить зависимости: `npm install`. 
 - Проверить типы: `npm run check`. Собрать проект: `npm run build`.
 - Для временной установки: открыть в Firefox `about:debugging#/runtime/this-firefox`, нажать **Загрузить временное дополнение** и выберать `dist/manifest.json`.
+
+# Способ решения задач
+
+Если какая-то задача не решается способом, который запросил пользователь, то не нужно искать обходные пути. Нужно остановиться и сказать пользователю о проблеме.
