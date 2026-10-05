@@ -26,7 +26,7 @@
     try {
       iconAccessAllowed = await browser.permissions.contains({ origins: ICON_ORIGINS });
     } catch (cause) {
-      console.error('Не удалось проверить доступ к сайтам', cause);
+      console.error('Failed to check host permissions', cause);
     }
   }
 
@@ -37,7 +37,7 @@
       iconAccessAllowed = await browser.permissions.request({ origins: ICON_ORIGINS });
     } catch (cause) {
       error = 'Не удалось разрешить загрузку иконок.';
-      console.error(error, cause);
+      console.error('Failed to request favicon host permissions', cause);
     } finally {
       requestingIconAccess = false;
     }
@@ -98,7 +98,7 @@
     } catch (cause) {
       if (!isActive()) return;
       error = 'Не удалось загрузить закладки.';
-      console.error(error, cause);
+      console.error('Failed to load bookmarks', cause);
     } finally {
       if (isActive()) loading = false;
     }
@@ -142,7 +142,7 @@
       panes[from].selectedId = '';
     } catch (cause) {
       error = 'Не удалось переместить элемент.';
-      console.error(error, cause);
+      console.error('Failed to move the selected bookmark item', cause);
     } finally {
       busy = false;
     }
@@ -153,7 +153,7 @@
       await browser.tabs.create({ url });
     } catch (cause) {
       error = 'Не удалось открыть закладку.';
-      console.error(error, cause);
+      console.error('Failed to open the bookmark', cause);
     }
   }
 

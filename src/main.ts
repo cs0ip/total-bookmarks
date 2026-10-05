@@ -3,6 +3,6 @@ import './app.css';
 import App from './App.svelte';
 
 const target = document.getElementById('app');
-if (!target) throw new Error('Не найден корневой элемент приложения');
+if (!target) throw new Error('Application root element not found');
 
 mount(App, { target });

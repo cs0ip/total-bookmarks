@@ -22,6 +22,24 @@ const downloads = new Map<string, Promise<void>>();
 const waiting: (() => void)[] = [];
 let activeDownloads = 0;
 
+async function runBatch<T>(
+  name: string,
+  operation: () => Promise<T>,
+  details: { count?: number } = {}
+): Promise<T> {
+  const startedAt = performance.now();
+  const durationMs = () => Math.round((performance.now() - startedAt) * 100) / 100;
+  console.info(`[Favicons] ${name}: started`, details);
+  try {
+    const result = await operation();
+    console.info(`[Favicons] ${name}: completed`, { ...details, durationMs: durationMs() });
+    return result;
+  } catch (cause) {
+    console.error(`[Favicons] ${name}: failed`, { ...details, durationMs: durationMs() }, cause);
+    throw cause;
+  }
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   if (!database) {
     database = new Promise<IDBDatabase>((resolve, reject) => {
@@ -32,7 +50,7 @@ function openDatabase(): Promise<IDBDatabase> {
         store.createIndex('nextRefreshAt', 'nextRefreshAt');
       };
       request.onerror = () => reject(request.error);
-      request.onblocked = () => reject(new Error('Хранилище иконок заблокировано'));
+      request.onblocked = () => reject(new Error('Favicon store is blocked'));
       request.onsuccess = () => {
         request.result.onversionchange = () => {
           request.result.close();
@@ -109,6 +127,7 @@ function refresh(origin: string): Promise<void> {
         };
       });
       if (updated && icon) {
+        console.info('[Favicons] Favicon downloaded and saved:', origin);
         await browser.runtime.sendMessage({ type: ICON_UPDATED, origin, icon }).catch(() => {
           // No manager tab is open. The icon is already saved in IndexedDB.
         });
@@ -142,7 +161,7 @@ export async function getSiteIcon(url: string): Promise<string | null> {
     return record;
   });
   if (record && record.nextRefreshAt <= now) {
-    void refresh(origin).catch((cause) => console.error('Не удалось обновить иконку', cause));
+    void refresh(origin).catch((cause) => console.error('Failed to refresh the favicon', cause));
   }
   return record?.icon ?? null;
 }
@@ -150,52 +169,71 @@ export async function getSiteIcon(url: string): Promise<string | null> {
 export function maintainSiteIcons(): Promise<void> {
   if (maintenance) return maintenance;
   maintenance = (async () => {
-    const db = await openDatabase();
-    const now = Date.now();
-    const due = await new Promise<string[]>((resolve, reject) => {
-      const transaction = db.transaction(STORE, 'readwrite');
-      const store = transaction.objectStore(STORE);
-      const expired = store.index('lastAccessedAt').openCursor(IDBKeyRange.upperBound(monthsFrom(now, -12), true));
-      const origins: string[] = [];
-      expired.onsuccess = () => {
-        const cursor = expired.result;
-        if (cursor) { cursor.delete(); cursor.continue(); }
-        else {
-          const request = store.index('nextRefreshAt').openKeyCursor(IDBKeyRange.upperBound(now));
-          request.onsuccess = () => {
-            const cursor = request.result;
-            if (cursor) { origins.push(cursor.primaryKey as string); cursor.continue(); }
-          };
-        }
-      };
-      transaction.oncomplete = () => resolve(origins);
-      transaction.onabort = () => reject(transaction.error);
-      transaction.onerror = () => reject(transaction.error);
+    const due = await runBatch('Batch favicon cleanup', async () => {
+      const db = await openDatabase();
+      const now = Date.now();
+      return new Promise<string[]>((resolve, reject) => {
+        const transaction = db.transaction(STORE, 'readwrite');
+        const store = transaction.objectStore(STORE);
+        const expired = store.index('lastAccessedAt').openCursor(IDBKeyRange.upperBound(monthsFrom(now, -12), true));
+        const origins: string[] = [];
+        const removed: string[] = [];
+        expired.onsuccess = () => {
+          const cursor = expired.result;
+          if (cursor) {
+            removed.push(cursor.primaryKey as string);
+            cursor.delete();
+            cursor.continue();
+          }
+          else {
+            const request = store.index('nextRefreshAt').openKeyCursor(IDBKeyRange.upperBound(now));
+            request.onsuccess = () => {
+              const cursor = request.result;
+              if (cursor) { origins.push(cursor.primaryKey as string); cursor.continue(); }
+            };
+          }
+        };
+        transaction.oncomplete = () => {
+          // Report deletions only after the transaction commits successfully.
+          for (const origin of removed) console.info('[Favicons] Favicon removed from cache:', origin);
+          resolve(origins);
+        };
+        transaction.onabort = () => reject(transaction.error);
+        transaction.onerror = () => reject(transaction.error);
+      });
     });
-    // Don't enqueue the entire database: keep at most four workers alive.
-    const pending = due.values();
-    await Promise.all(Array.from({ length: MAX_DOWNLOADS }, async () => {
-      for (const origin of pending) await refresh(origin);
-    }));
+    await runBatch('Batch favicon refresh', async () => {
+      // Don't enqueue the entire database: keep at most four workers alive.
+      const pending = due.values();
+      // Even if a worker fails, wait for the others before reporting completion.
+      const results = await Promise.allSettled(Array.from({ length: MAX_DOWNLOADS }, async () => {
+        for (const origin of pending) await refresh(origin);
+      }));
+      for (const result of results) {
+        if (result.status === 'rejected') throw result.reason;
+      }
+    }, { count: due.length });
   })().finally(() => { maintenance = undefined; });
   return maintenance;
 }
 
-export async function retryMissingSiteIcons(): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(STORE, 'readwrite');
-    const request = transaction.objectStore(STORE).openCursor();
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor) return;
-      const record = cursor.value as IconRecord;
-      if (!record.icon) cursor.update({ ...record, nextRefreshAt: 0 });
-      cursor.continue();
-    };
-    transaction.oncomplete = () => resolve();
-    transaction.onabort = () => reject(transaction.error);
-    transaction.onerror = () => reject(transaction.error);
+export function retryMissingSiteIcons(): Promise<void> {
+  return runBatch('Batch retry of missing favicons', async () => {
+    const db = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORE, 'readwrite');
+      const request = transaction.objectStore(STORE).openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const record = cursor.value as IconRecord;
+        if (!record.icon) cursor.update({ ...record, nextRefreshAt: 0 });
+        cursor.continue();
+      };
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () => reject(transaction.error);
+      transaction.onerror = () => reject(transaction.error);
+    });
+    await maintainSiteIcons();
   });
-  await maintainSiteIcons();
 }

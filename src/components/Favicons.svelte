@@ -23,7 +23,7 @@
     browser.runtime.onMessage.addListener(onUpdate);
     void browser.runtime.sendMessage({ type: ICON_REQUEST, url }).then((cached: string | null) => {
       if (active && !receivedUpdate) { icon = cached; failed = false; }
-    }).catch((cause) => console.error('Не удалось получить иконку', cause));
+    }).catch((cause) => console.error('Failed to get the favicon', cause));
     return () => {
       active = false;
       browser.runtime.onMessage.removeListener(onUpdate);

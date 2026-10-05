@@ -13,8 +13,8 @@ async function fetchResource(url: string, limit: number): Promise<{ blob: Blob; 
       redirect: 'follow',
       cache: 'no-cache'
     });
-    if (!response.ok || !response.body) throw new Error(`Ресурс недоступен: HTTP ${response.status}, ${url}`);
-    if (Number(response.headers.get('content-length')) > limit) throw new Error('Ресурс слишком большой');
+    if (!response.ok || !response.body) throw new Error(`Resource unavailable: HTTP ${response.status}, ${url}`);
+    if (Number(response.headers.get('content-length')) > limit) throw new Error('Resource exceeds the size limit');
     const reader = response.body.getReader();
     const chunks: Uint8Array<ArrayBuffer>[] = [];
     let size = 0;
@@ -23,7 +23,7 @@ async function fetchResource(url: string, limit: number): Promise<{ blob: Blob; 
         const { done, value } = await reader.read();
         if (done) break;
         size += value.byteLength;
-        if (size > limit) throw new Error('Ресурс слишком большой');
+        if (size > limit) throw new Error('Resource exceeds the size limit');
         chunks.push(new Uint8Array(value));
       }
     } finally {
@@ -52,7 +52,7 @@ async function iconData(url: string): Promise<string> {
     const image = new Image();
     const timeout = setTimeout(() => {
       image.src = '';
-      reject(new Error('Не удалось декодировать иконку'));
+      reject(new Error('Favicon decoding timed out'));
     }, TIMEOUT_MS);
     image.onload = () => {
       // onload alone can succeed for an image with corrupt pixel data.
@@ -61,7 +61,7 @@ async function iconData(url: string): Promise<string> {
         reject(cause);
       });
     };
-    image.onerror = () => { clearTimeout(timeout); reject(new Error('Неверный формат иконки')); };
+    image.onerror = () => { clearTimeout(timeout); reject(new Error('Invalid favicon image format')); };
     image.src = data;
   });
   return data;
@@ -94,6 +94,6 @@ export async function downloadIcon(origin: string): Promise<string | null> {
       try { return await iconData(url); } catch (cause) { failure = cause; }
     }
   } catch (cause) { failure = cause; }
-  console.debug('Не удалось загрузить favicon', origin, failure);
+  console.debug('Failed to download the favicon', origin, failure);
   return null;
 }
