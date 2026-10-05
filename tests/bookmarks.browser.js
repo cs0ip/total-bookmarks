@@ -17,7 +17,7 @@ export async function runBookmarkTests() {
   const right = document.querySelector('[aria-label="Правая панель"]');
   const row = (pane, title) => [...pane.querySelectorAll('button[aria-pressed]')]
     .find((button) => button.textContent.includes(title));
-  const open = (pane, title) => row(pane, title).parentElement.querySelector('button:last-child').click();
+  const open = (pane, title) => row(pane, title).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   const tree = await browser.bookmarks.getTree();
   const toolbar = tree[0].children.find((node) => node.id === 'toolbar_____') ?? tree[0].children[0];
   const fixtures = await browser.bookmarks.create({ parentId: toolbar.id, title: 'Event fixtures' });
@@ -33,7 +33,28 @@ export async function runBookmarkTests() {
     const item = await browser.bookmarks.create({ parentId: fixtures.id, title: 'Created by Firefox', url: 'about:blank' });
     await until(() => row(left, item.title) && row(right, item.title));
     assert(true, 'Creating a bookmark updates both panels without a manual refresh');
-    row(left, item.title).click();
+    const originalCreateTab = browser.tabs.create;
+    const opened = [];
+    browser.tabs.create = async (options) => { opened.push(options.url); return { id: -1 }; };
+    try {
+      const bookmarkRow = row(left, item.title);
+      assert(bookmarkRow.parentElement.querySelectorAll('button').length === 1, 'Bookmark rows have no separate open button');
+      bookmarkRow.click();
+      await until(() => bookmarkRow.getAttribute('aria-pressed') === 'true');
+      assert(opened.length === 0, 'A single click selects a bookmark without opening it');
+      bookmarkRow.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      assert(opened.length === 1 && opened[0] === item.url, 'A double click opens the bookmark exactly once');
+      bookmarkRow.focus();
+      const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+      bookmarkRow.dispatchEvent(enter);
+      assert(enter.defaultPrevented && opened.length === 2 && opened[1] === item.url, 'Enter opens the selected bookmark and suppresses native button activation');
+      bookmarkRow.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true, cancelable: true }));
+      assert(opened.length === 2, 'Holding Enter does not open additional tabs');
+      row(right, item.title).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      assert(opened.length === 2, 'Enter does not open an unselected bookmark in the other panel');
+    } finally {
+      browser.tabs.create = originalCreateTab;
+    }
     await browser.bookmarks.update(item.id, { title: 'Renamed by Firefox', url: 'about:config' });
     await until(() => row(left, 'Renamed by Firefox')?.textContent.includes('about:config') && row(right, 'Renamed by Firefox')?.textContent.includes('about:config'));
     assert(row(left, 'Renamed by Firefox').getAttribute('aria-pressed') === 'true', 'Title and URL changes preserve the selected bookmark');
@@ -44,7 +65,9 @@ export async function runBookmarkTests() {
     const destination = await browser.bookmarks.create({ parentId: fixtures.id, title: 'Destination' });
     const second = await browser.bookmarks.create({ parentId: fixtures.id, title: 'Second bookmark', url: 'about:blank' });
     await until(() => row(left, 'Destination') && row(right, 'Second bookmark'));
-    open(right, 'Destination');
+    row(right, 'Destination').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await until(() => right.querySelector('h2').textContent === 'Destination');
+    assert(true, 'A double click opens a folder in its own panel');
     await browser.bookmarks.move(item.id, { parentId: destination.id });
     await until(() => !row(left, 'Renamed by Firefox') && row(right, 'Renamed by Firefox'));
     assert(left.querySelector('footer').textContent.includes('Выберите элемент'), 'Moving a bookmark updates both folders and clears selection in its old folder');

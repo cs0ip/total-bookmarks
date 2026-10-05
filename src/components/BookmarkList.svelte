@@ -18,6 +18,18 @@
     return item.title || (item.type === 'separator' ? 'Разделитель' : 'Без названия');
   }
 
+  function openItem(item: BookmarkNode): void {
+    if (item.url) void onOpenBookmark(item.url);
+    else if (item.children) onOpenFolder(item.id);
+  }
+
+  function onItemKeydown(event: KeyboardEvent, item: BookmarkNode): void {
+    if (event.key !== 'Enter') return;
+    // Suppress the button's native click so Enter opens only the selected item.
+    event.preventDefault();
+    if (!event.repeat && selectedId === item.id) openItem(item);
+  }
+
 </script>
 
 <div class="min-h-0 flex-1 overflow-auto p-[6px]">
@@ -33,6 +45,8 @@
           type="button"
           aria-pressed={selectedId === item.id}
           onclick={() => onSelect(item.id)}
+          ondblclick={() => openItem(item)}
+          onkeydown={(event) => onItemKeydown(event, item)}
         >
           {#if item.url}
             <Bookmark bookmark={item} />
@@ -48,22 +62,6 @@
             </span>
           {/if}
         </button>
-        {#if item.children}
-          <button
-            class="mr-2 shrink-0 cursor-pointer rounded-lg border border-[#d5dbea] bg-white px-2 py-[5px] text-xs text-[#34405a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5f44b4]"
-            type="button"
-            onclick={() => onOpenFolder(item.id)}
-          >Открыть</button>
-        {:else if item.url}
-          <button
-            class="mr-2 shrink-0 cursor-pointer rounded-lg border border-[#d5dbea] bg-white px-2 py-[5px] text-xs text-[#34405a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5f44b4]"
-            type="button"
-            aria-label={`Открыть ${itemTitle(item)} в новой вкладке`}
-            onclick={() => {
-              if (item.url) void onOpenBookmark(item.url);
-            }}
-          >↗</button>
-        {/if}
       </div>
     {/each}
   {/if}

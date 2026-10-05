@@ -167,10 +167,10 @@ export async function runIconTests(origin) {
       const script = index.match(/<script[^>]*src="([^"]+)"/)[1];
       document.body.innerHTML = '<div id="app"></div>';
       await import(script);
-      const open = await until(() => [...document.querySelectorAll('button')].find((button) =>
-        button.textContent === 'Открыть' && button.parentElement.textContent.includes(toolbar.title)
+      const toolbarRow = await until(() => [...document.querySelectorAll('button[aria-pressed]')].find((button) =>
+        button.textContent.includes(toolbar.title)
       ));
-      open.click();
+      toolbarRow.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
       await until(() => [...document.querySelectorAll('img')].find((img) =>
         img.parentElement.parentElement.textContent.includes('Favicon async fixture') && img.src.startsWith('chrome:')
       ));
