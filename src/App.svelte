@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import BookmarkPanels from './components/BookmarkPanels.svelte';
+  import { ICON_ORIGINS } from './icons/protocol';
 
   type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
   type Side = 0 | 1;
@@ -16,6 +17,31 @@
   let loading = $state(true);
   let busy = $state(false);
   let error = $state('');
+  let iconAccessAllowed = $state<boolean | null>(null);
+  let requestingIconAccess = $state(false);
+  const manifest = browser.runtime.getManifest();
+  const iconManifestReady = ICON_ORIGINS.every((origin) => manifest.host_permissions?.includes(origin));
+
+  async function checkIconAccess(): Promise<void> {
+    try {
+      iconAccessAllowed = await browser.permissions.contains({ origins: ICON_ORIGINS });
+    } catch (cause) {
+      console.error('Не удалось проверить доступ к сайтам', cause);
+    }
+  }
+
+  async function requestIconAccess(): Promise<void> {
+    requestingIconAccess = true;
+    try {
+      // Call directly from the click handler to retain Firefox's user gesture.
+      iconAccessAllowed = await browser.permissions.request({ origins: ICON_ORIGINS });
+    } catch (cause) {
+      error = 'Не удалось разрешить загрузку иконок.';
+      console.error(error, cause);
+    } finally {
+      requestingIconAccess = false;
+    }
+  }
 
   function findNode(id: string | undefined): BookmarkNode | null {
     if (!id) return null;
@@ -48,11 +74,13 @@
     };
   }
 
-  async function loadTree() {
+  async function loadTree(isActive: () => boolean) {
     loading = true;
     error = '';
     try {
-      roots = await browser.bookmarks.getTree();
+      const tree = await browser.bookmarks.getTree();
+      if (!isActive()) return;
+      roots = tree;
       const index = new Map<string, BookmarkNode>();
       const pending = [...roots];
       while (pending.length) {
@@ -65,13 +93,14 @@
       rootId = roots[0]?.id ?? '';
       for (const pane of panes) {
         if (!findNode(pane.folderId)) pane.folderId = rootId;
-        if (!findNode(pane.selectedId)) pane.selectedId = '';
+        if (findNode(pane.selectedId)?.parentId !== pane.folderId) pane.selectedId = '';
       }
     } catch (cause) {
+      if (!isActive()) return;
       error = 'Не удалось загрузить закладки.';
       console.error(error, cause);
     } finally {
-      loading = false;
+      if (isActive()) loading = false;
     }
   }
 
@@ -111,7 +140,6 @@
     try {
       await browser.bookmarks.move(sourceId, { parentId: destinationId });
       panes[from].selectedId = '';
-      await loadTree();
     } catch (cause) {
       error = 'Не удалось переместить элемент.';
       console.error(error, cause);
@@ -130,7 +158,52 @@
   }
 
   onMount(() => {
-    void loadTree();
+    let active = true;
+    let pending = true;
+    let refreshing = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    async function refreshTree(): Promise<void> {
+      timer = undefined;
+      if (!active || refreshing) return;
+      refreshing = true;
+      try {
+        // An event arriving during getTree requests another pass. Reads never
+        // overlap, so an older snapshot cannot overwrite a newer one.
+        while (active && pending) {
+          pending = false;
+          await loadTree(() => active);
+        }
+      } finally {
+        refreshing = false;
+      }
+    }
+
+    function onBookmarksChanged(): void {
+      pending = true;
+      // Batch a burst of events, including changes made in this manager.
+      if (!refreshing && timer === undefined) timer = setTimeout(() => void refreshTree(), 50);
+    }
+
+    const events = [
+      browser.bookmarks.onCreated,
+      browser.bookmarks.onRemoved,
+      browser.bookmarks.onChanged,
+      browser.bookmarks.onMoved,
+      browser.bookmarks.onChildrenReordered
+    ];
+    for (const event of events) event?.addListener(onBookmarksChanged);
+    void refreshTree();
+    void checkIconAccess();
+    browser.permissions.onAdded.addListener(checkIconAccess);
+    browser.permissions.onRemoved.addListener(checkIconAccess);
+    return () => {
+      active = false;
+      if (timer !== undefined) clearTimeout(timer);
+      for (const event of events) event?.removeListener(onBookmarksChanged);
+      browser.permissions.onAdded.removeListener(checkIconAccess);
+      browser.permissions.onRemoved.removeListener(checkIconAccess);
+    };
   });
 </script>
 
@@ -147,13 +220,28 @@
         <p class="mt-[3px] text-[#657088]">Двухпанельный менеджер закладок</p>
       </div>
     </div>
-    <button
-      class="cursor-pointer rounded-lg border border-[#d5dbea] bg-white px-[14px] py-2 text-[#34405a] disabled:cursor-not-allowed disabled:opacity-[.45] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5f44b4]"
-      type="button"
-      onclick={loadTree}
-      disabled={loading || busy}
-    >Обновить</button>
   </header>
+
+  {#if iconAccessAllowed === false}
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#d5dbea] bg-white px-[14px] py-[10px] text-[#34405a]" role="status">
+      {#if iconManifestReady}
+        <span>Для загрузки иконок сайтов нужен доступ к сайтам закладок.</span>
+        <button
+          class="cursor-pointer rounded-lg border border-[#d5dbea] bg-white px-3 py-2 disabled:cursor-not-allowed disabled:opacity-[.45]"
+          type="button"
+          onclick={requestIconAccess}
+          disabled={requestingIconAccess}
+        >Разрешить загрузку иконок</button>
+      {:else}
+        <span>Перезагрузите расширение, чтобы применить обновление иконок.</span>
+        <button
+          class="cursor-pointer rounded-lg border border-[#d5dbea] bg-white px-3 py-2"
+          type="button"
+          onclick={() => browser.runtime.reload()}
+        >Перезагрузить расширение</button>
+      {/if}
+    </div>
+  {/if}
 
   {#if error}
     <p class="rounded-lg bg-[#fff1f1] px-[14px] py-[10px] text-[#a02c2c]" role="alert">{error}</p>

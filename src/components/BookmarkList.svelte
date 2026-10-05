@@ -1,5 +1,6 @@
 <script lang="ts">
   import Bookmark from './Bookmark.svelte';
+  import Favicons from './Favicons.svelte';
 
   type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
   type Props = {
@@ -36,7 +37,11 @@
           {#if item.url}
             <Bookmark bookmark={item} />
           {:else}
-            <span class="w-[22px] shrink-0 text-center text-[18px] text-[#6243ba]" aria-hidden="true">{item.children ? '▣' : '—'}</span>
+            {#if item.type === 'separator'}
+              <span class="w-[22px] shrink-0 text-center text-[18px] text-[#738098]" aria-hidden="true">—</span>
+            {:else}
+              <Favicons folder />
+            {/if}
             <span class="flex min-w-0 flex-col">
               <span class="truncate font-semibold">{itemTitle(item)}</span>
               <span class="text-xs text-[#738098]">{item.type === 'separator' ? 'Разделитель' : 'Папка'}</span>
