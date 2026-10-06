@@ -8,6 +8,7 @@
   type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
   type Side = 0 | 1;
   type PaneState = { folderId: string; selectedId: string };
+  type FocusPosition = PaneState & { index: number };
 
   let roots: BookmarkNode[] = $state([]);
   let nodesById = $state(new Map<string, BookmarkNode>());
@@ -18,6 +19,7 @@
   ]);
   let loading = $state(true);
   let moving = $state(false);
+  let moveFocusPositions: FocusPosition[] | undefined;
   let refreshAfterMove: () => Promise<void> = async () => {};
   let error = $state('');
   let iconAccessAllowed = $state<boolean | null>(null);
@@ -96,10 +98,20 @@
       }
       nodesById = index;
       rootId = roots[0]?.id ?? '';
-      for (const pane of panes) {
+      const focusPositions = moveFocusPositions;
+      moveFocusPositions = undefined;
+      for (const side of [0, 1] as const) {
+        const pane = panes[side];
         if (!findNode(pane.folderId)) pane.folderId = rootId;
         const parentSelected = pane.selectedId === PARENT_FOLDER_ITEM_ID && findNode(pane.folderId)?.parentId;
-        if (!parentSelected && findNode(pane.selectedId)?.parentId !== pane.folderId) pane.selectedId = '';
+        if (!parentSelected && findNode(pane.selectedId)?.parentId !== pane.folderId) {
+          const position = focusPositions?.[side];
+          const items = itemsIn(side);
+          // Choose the nearest remaining position before the new rows render.
+          pane.selectedId = position?.folderId === pane.folderId && position.selectedId === pane.selectedId && position.index >= 0
+            ? items[Math.min(position.index, items.length - 1)]?.id ?? ''
+            : '';
+        }
       }
     } catch (cause) {
       if (!isActive()) return;
@@ -146,6 +158,10 @@
 
   async function moveItems(request: MoveRequest): Promise<string[]> {
     if (!canMoveItems(request)) return [];
+    const focusPositions = panes.map((pane) => ({
+      ...pane,
+      index: findNode(pane.folderId)?.children?.findIndex((item) => item.id === pane.selectedId) ?? -1
+    }));
     moving = true;
     error = '';
     const completed: string[] = [];
@@ -169,7 +185,9 @@
       console.error('Failed to move selected bookmarks', cause);
     } finally {
       moving = false;
+      if (request.sourceId !== request.destinationId) moveFocusPositions = focusPositions;
       await refreshAfterMove();
+      moveFocusPositions = undefined;
       if (failed) error = 'Не удалось переместить выбранные элементы.';
     }
     return result;

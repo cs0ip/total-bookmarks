@@ -102,6 +102,7 @@ def run():
             shutil.copy(ROOT / 'tests/bookmarks.browser.js', extension / 'bookmarks.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-commands.browser.js', extension / 'bookmark-commands.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-pointer.browser.js', extension / 'bookmark-pointer.browser.js')
+            shutil.copy(ROOT / 'tests/bookmark-drag.browser.js', extension / 'bookmark-drag.browser.js')
             manifest = json.loads((extension / 'manifest.json').read_text())
             manifest['browser_specific_settings']['gecko']['id'] = 'site-icons-test@example.test'
             manifest['background']['scripts'].append('open-test.js')
@@ -358,6 +359,28 @@ def run():
                         finally:
                             command('WebDriver:ReleaseActions')
                             pointer_script('await window.pointerTests.cleanup(); delete window.pointerTests;')
+                        pointer_script("window.dragTests = await import('./bookmark-drag.browser.js'); await window.dragTests.prepare();")
+                        try:
+                            for case in ['reorder', 'right', 'left', 'empty', 'cycle', 'escape', 'outside', 'parent', 'same-folder', 'scroll']:
+                                points = pointer_script('return await window.dragTests.startCase(arguments[0]);', [case])
+                                pointer_actions([
+                                    {'type': 'pointerMove', **points['start'], 'duration': 0},
+                                    {'type': 'pointerDown', 'button': 0},
+                                    {'type': 'pointerMove', **points['end'], 'duration': 200}
+                                ])
+                                result['results'].append(pointer_script('return await window.dragTests.verifyHover(arguments[0]);', [case]))
+                                if case in ['escape', 'scroll']:
+                                    command('WebDriver:PerformActions', {'actions': [{
+                                        'type': 'key', 'id': 'drag-keyboard', 'actions': [
+                                            {'type': 'keyDown', 'value': '\ue00c'},
+                                            {'type': 'keyUp', 'value': '\ue00c'}
+                                        ]
+                                    }]})
+                                pointer_actions([{'type': 'pointerUp', 'button': 0}])
+                                result['results'].append(pointer_script('return await window.dragTests.verifyDrop(arguments[0]);', [case]))
+                        finally:
+                            command('WebDriver:ReleaseActions')
+                            pointer_script('await window.dragTests.cleanup(); delete window.dragTests;')
                         for assertion in result['results']:
                             print('PASS', assertion)
                         print(f"Passed {len(result['results'])} assertions in Firefox")

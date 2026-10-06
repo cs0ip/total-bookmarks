@@ -14,6 +14,8 @@
     parentFolderId?: string;
     loading?: boolean;
     active?: boolean;
+    dropMarkerTop?: number;
+    draggedIds?: ReadonlySet<string>;
     onActivate: () => void;
     onSelect: (id: string) => void;
     onMarkedIdsChange: (ids: Set<string>) => void;
@@ -21,7 +23,7 @@
     onOpenBookmark: (url: string) => void | Promise<void>;
   };
 
-  let { items, selectedId, markedIds, parentFolderId, loading = false, active = false, onActivate, onSelect, onMarkedIdsChange, onOpenFolder, onOpenBookmark }: Props = $props();
+  let { items, selectedId, markedIds, parentFolderId, loading = false, active = false, dropMarkerTop, draggedIds, onActivate, onSelect, onMarkedIdsChange, onOpenFolder, onOpenBookmark }: Props = $props();
   let list: HTMLDivElement;
   let preservingViewport = false;
   let previousRows: BookmarkNode[] | undefined;
@@ -88,6 +90,23 @@
       }
     }
     if (reveal && target !== list) keepRowVisible(target);
+  }
+
+  export function insertionAt(clientY: number): { afterId?: string; top: number } {
+    const bounds = list.getBoundingClientRect();
+    let afterId: string | undefined;
+    let top = parseFloat(getComputedStyle(list).paddingTop);
+    for (const row of list.querySelectorAll<HTMLElement>('[data-bookmark-row]')) {
+      const rect = row.getBoundingClientRect();
+      if (row.dataset.bookmarkId !== PARENT_FOLDER_ITEM_ID) {
+        if (clientY < (rect.top + rect.bottom) / 2) {
+          return { afterId, top: rect.top - bounds.top - list.clientTop + list.scrollTop };
+        }
+        afterId = row.dataset.bookmarkId;
+      }
+      top = rect.bottom - bounds.top - list.clientTop + list.scrollTop;
+    }
+    return { afterId, top };
   }
 
   function keepRowVisible(target: HTMLElement): void {
@@ -157,14 +176,14 @@
 
 </script>
 
-<div bind:this={list} role="group" aria-label="Список закладок" tabindex="-1" onfocusin={onActivate} class="min-h-0 flex-1 overflow-auto p-[6px]">
+<div bind:this={list} data-bookmark-list role="group" aria-label="Список закладок" tabindex="-1" onfocusin={onActivate} class="relative min-h-0 flex-1 overflow-auto p-[6px]">
   {#if loading}
     <p class="m-0 px-[14px] py-[30px] text-center text-[#758097]">Загрузка…</p>
   {:else if rows.length === 0}
     <p class="m-0 px-[14px] py-[30px] text-center text-[#758097]">Папка пуста</p>
   {:else}
     {#each rows as item (item.id)}
-      <div data-bookmark-row class={`flex min-w-0 items-center gap-1 rounded-lg focus-within:outline-2 focus-within:outline-offset-0 focus-within:outline-[#5f44b4] ${activeSelectedId === item.id ? 'bg-[#ebe6fb]' : markedIds.has(item.id) ? 'bg-[#f1f6fd]' : 'hover:bg-[#f5f6fb]'}`}>
+      <div data-bookmark-row data-bookmark-id={item.id} class:dragged={draggedIds?.has(item.id)} class={`flex min-w-0 items-center gap-1 rounded-lg focus-within:outline-2 focus-within:outline-offset-0 focus-within:outline-[#5f44b4] ${activeSelectedId === item.id ? 'bg-[#ebe6fb]' : markedIds.has(item.id) ? 'bg-[#f1f6fd]' : 'hover:bg-[#f5f6fb]'}`}>
         {#if item.id !== PARENT_FOLDER_ITEM_ID && item.type !== 'separator'}
           <Bookmark
             bookmark={item}
@@ -201,4 +220,11 @@
       </div>
     {/each}
   {/if}
+  {#if dropMarkerTop !== undefined}
+    <div data-drop-marker aria-hidden="true" class="pointer-events-none absolute right-[6px] left-[6px] z-10 h-[3px] rounded bg-[#5f44b4]" style:top={`${dropMarkerTop - 1}px`}></div>
+  {/if}
 </div>
+
+<style>
+  .dragged { opacity: 0.5; }
+</style>

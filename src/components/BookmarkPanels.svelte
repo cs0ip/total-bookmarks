@@ -9,6 +9,16 @@
   type Side = 0 | 1;
   type MoveDirection = 'up' | 'down' | 'left' | 'right';
   type FolderState = { markedIds: Set<string>; focusedId: string };
+  type ItemDrag = {
+    pointerId: number;
+    side: Side;
+    folderId: string;
+    ids: Set<string>;
+    markedIds: Set<string>;
+    startX: number;
+    startY: number;
+  };
+  type DropTarget = { side: Side; request: MoveRequest; top: number };
   type PaneView = {
     side: Side;
     folder: BookmarkNode | null;
@@ -43,9 +53,15 @@
   let moving = $state(false);
   let leftShare = $state(0.5);
   let drag = $state<{ pointerId: number; offset: number } | null>(null);
+  let pendingItemDrag: ItemDrag | undefined;
+  let itemDrag = $state<ItemDrag>();
+  let dropTarget = $state<DropTarget>();
+  let dragPoint = $state({ x: 0, y: 0 });
+  let scrollFrame: number | undefined;
+  let suppressClick = false;
   const folderStates = [new SvelteMap<string, FolderState>(), new SvelteMap<string, FolderState>()];
   const emptyMarkedIds = new Set<string>();
-  const lists: ({ focusSelected: (reveal?: boolean) => void } | undefined)[] = [];
+  const lists: ({ focusSelected: (reveal?: boolean) => void; insertionAt: (y: number) => { afterId?: string; top: number } } | undefined)[] = [];
   const commands: CommandBarButton[] = $derived([
     moveButton('up', 'Переместить вверх'),
     moveButton('down', 'Переместить вниз'),
@@ -84,16 +100,21 @@
   async function moveSelected(direction: MoveDirection): Promise<void> {
     const request = moveRequest(direction);
     if (moving || loading || !request || !canMoveItems(request)) return;
-    const sourcePane = direction === 'right' ? left : direction === 'left' ? right : activeSide === 0 ? left : right;
-    const markedToTransfer = new Set(request.ids.filter((id) => markedIdsFor(sourcePane).has(id)));
+    const sourceSide = direction === 'right' ? 0 : direction === 'left' ? 1 : activeSide;
+    const destinationSide = direction === 'right' ? 1 : direction === 'left' ? 0 : sourceSide;
+    await performMove(sourceSide, destinationSide, request);
+  }
+
+  async function performMove(sourceSide: Side, destinationSide: Side, request: MoveRequest, marked?: Set<string>): Promise<void> {
+    if (moving || loading || !canMoveItems(request)) return;
+    const sourcePane = sourceSide === 0 ? left : right;
+    const markedToTransfer = marked ?? new Set(request.ids.filter((id) => markedIdsFor(sourcePane).has(id)));
     moving = true;
     try {
       const movedIds = (await onMoveItems(request)).filter((id) => markedToTransfer.has(id));
       // Wait for the final tree to reach the lists before restoring moved marks.
       await tick();
-      if (!movedIds.length || (direction !== 'left' && direction !== 'right')) return;
-      const sourceSide: Side = direction === 'right' ? 0 : 1;
-      const destinationSide: Side = direction === 'right' ? 1 : 0;
+      if (!movedIds.length || sourceSide === destinationSide) return;
       const sourceState = folderStates[sourceSide].get(request.sourceId);
       if (sourceState && request.sourceId !== request.destinationId) {
         const markedIds = new Set(sourceState.markedIds);
@@ -110,6 +131,99 @@
     } finally {
       moving = false;
     }
+  }
+
+  function cancelItemDrag(): void {
+    const pointerId = itemDrag?.pointerId;
+    pendingItemDrag = undefined;
+    itemDrag = undefined;
+    dropTarget = undefined;
+    if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame);
+    scrollFrame = undefined;
+    if (pointerId !== undefined && panels.hasPointerCapture(pointerId)) panels.releasePointerCapture(pointerId);
+  }
+
+  $effect(() => {
+    if (itemDrag && (loading || moving || (itemDrag.side === 0 ? left : right).folder?.id !== itemDrag.folderId)) cancelItemDrag();
+  });
+
+  function dragDestination(): { pane: PaneView; list: HTMLElement } | undefined {
+    const hit = document.elementFromPoint(dragPoint.x, dragPoint.y);
+    const side = paneSideFor(hit);
+    const list = hit?.closest<HTMLElement>('[data-bookmark-list]');
+    if (side === undefined || !list) return;
+    return { pane: side === 0 ? left : right, list };
+  }
+
+  function updateDropTarget(): void {
+    dropTarget = undefined;
+    if (!itemDrag || loading || moving) return;
+    const destination = dragDestination();
+    if (!destination?.pane.folder) return;
+    const position = lists[destination.pane.side]?.insertionAt(dragPoint.y);
+    if (!position) return;
+    const request: MoveRequest = {
+      sourceId: itemDrag.folderId,
+      destinationId: destination.pane.folder.id,
+      ids: [...itemDrag.ids],
+      afterId: position.afterId
+    };
+    if (canMoveItems(request)) dropTarget = { side: destination.pane.side, request, top: position.top };
+  }
+
+  function scrollWhileDragging(): void {
+    scrollFrame = undefined;
+    if (!itemDrag) return;
+    const destination = dragDestination();
+    if (destination) {
+      const bounds = destination.list.getBoundingClientRect();
+      const distance = dragPoint.y < bounds.top + 32 ? dragPoint.y - bounds.top - 32 :
+        dragPoint.y > bounds.bottom - 32 ? dragPoint.y - bounds.bottom + 32 : 0;
+      if (distance) destination.list.scrollTop += Math.max(-12, Math.min(12, distance / 3));
+    }
+    updateDropTarget();
+    scrollFrame = requestAnimationFrame(scrollWhileDragging);
+  }
+
+  function beginItemDrag(event: PointerEvent): void {
+    suppressClick = false;
+    if (!event.isPrimary || event.button !== 0 || event.pointerType !== 'mouse' || loading || moving || drag) return;
+    const side = paneSideFor(event.target);
+    if (side === undefined || !(event.target instanceof Element) || event.target.closest('input')) return;
+    const row = event.target.closest<HTMLElement>('[data-bookmark-row]');
+    const source = side === 0 ? left : right;
+    const item = source.items.find((item) => item.id === row?.dataset.bookmarkId);
+    if (!source.folder || !item || item.type === 'separator') return;
+    const markedIds = new Set(source.items.filter((item) => markedIdsFor(source).has(item.id)).map((item) => item.id));
+    const ids = markedIds.size ? new Set(markedIds) : new Set([item.id]);
+    if (!canMoveItems({ sourceId: source.folder.id, destinationId: source.folder.id, ids: [...ids] })) return;
+    pendingItemDrag = { pointerId: event.pointerId, side, folderId: source.folder.id, ids, markedIds, startX: event.clientX, startY: event.clientY };
+  }
+
+  function moveItemDrag(event: PointerEvent): void {
+    if (!pendingItemDrag || event.pointerId !== pendingItemDrag.pointerId) return;
+    if (!itemDrag) {
+      if (Math.hypot(event.clientX - pendingItemDrag.startX, event.clientY - pendingItemDrag.startY) < 6) return;
+      itemDrag = pendingItemDrag;
+      suppressClick = true;
+      panels.setPointerCapture(event.pointerId);
+      scrollFrame = requestAnimationFrame(scrollWhileDragging);
+    }
+    event.preventDefault();
+    dragPoint = { x: event.clientX, y: event.clientY };
+    updateDropTarget();
+  }
+
+  function finishItemDrag(event: PointerEvent): void {
+    if (event.pointerId !== pendingItemDrag?.pointerId) return;
+    if (itemDrag) {
+      dragPoint = { x: event.clientX, y: event.clientY };
+      updateDropTarget();
+    }
+    const source = itemDrag;
+    const destination = dropTarget;
+    cancelItemDrag();
+    if (source && destination) void performMove(source.side, destination.side, destination.request, source.markedIds);
   }
 
   function selectItem(pane: PaneView, id: string): void {
@@ -183,6 +297,28 @@
   onMount(() => {
     let mounted = true;
 
+    function onDragKeydown(event: KeyboardEvent): void {
+      if (!itemDrag) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === 'Escape') cancelItemDrag();
+    }
+
+    function onDragClick(event: MouseEvent): void {
+      if (!suppressClick) return;
+      suppressClick = false;
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    function onNativeDrag(event: DragEvent): void {
+      if (event.target instanceof Node && panels.contains(event.target)) event.preventDefault();
+    }
+
+    function onDragCancel(event: PointerEvent): void {
+      if (event.pointerId === pendingItemDrag?.pointerId) cancelItemDrag();
+    }
+
     function onDocumentFocus(event: FocusEvent): void {
       const side = paneSideFor(event.target);
       if (side !== undefined) activeSide = side;
@@ -231,6 +367,15 @@
     document.addEventListener('focusout', restoreFocus);
     document.addEventListener('mousedown', onDocumentMousedown);
     document.addEventListener('keydown', onDocumentKeydown);
+    document.addEventListener('pointerdown', beginItemDrag);
+    document.addEventListener('pointermove', moveItemDrag);
+    document.addEventListener('pointerup', finishItemDrag);
+    document.addEventListener('pointercancel', onDragCancel);
+    document.addEventListener('lostpointercapture', onDragCancel);
+    document.addEventListener('keydown', onDragKeydown, true);
+    document.addEventListener('click', onDragClick, true);
+    document.addEventListener('dragstart', onNativeDrag);
+    window.addEventListener('blur', cancelItemDrag);
     window.addEventListener('focus', restoreFocus);
     focusActivePane();
     return () => {
@@ -239,6 +384,16 @@
       document.removeEventListener('focusout', restoreFocus);
       document.removeEventListener('mousedown', onDocumentMousedown);
       document.removeEventListener('keydown', onDocumentKeydown);
+      document.removeEventListener('pointerdown', beginItemDrag);
+      document.removeEventListener('pointermove', moveItemDrag);
+      document.removeEventListener('pointerup', finishItemDrag);
+      document.removeEventListener('pointercancel', onDragCancel);
+      document.removeEventListener('lostpointercapture', onDragCancel);
+      document.removeEventListener('keydown', onDragKeydown, true);
+      document.removeEventListener('click', onDragClick, true);
+      document.removeEventListener('dragstart', onNativeDrag);
+      window.removeEventListener('blur', cancelItemDrag);
+      cancelItemDrag();
       window.removeEventListener('focus', restoreFocus);
     };
   });
@@ -249,6 +404,8 @@
   bind:this={panels}
   class="panels-layout grid min-h-0 flex-1"
   class:resizing={drag !== null}
+  class:dragging-items={itemDrag !== undefined}
+  class:invalid-drop={itemDrag !== undefined && dropTarget === undefined}
   style:--left-width={`${leftShare}fr`}
   style:--right-width={`${1 - leftShare}fr`}
 >
@@ -276,6 +433,8 @@
         parentFolderId={pane.folder?.parentId}
         {loading}
         active={activeSide === pane.side}
+        dropMarkerTop={dropTarget?.side === pane.side ? dropTarget.top : undefined}
+        draggedIds={itemDrag?.side === pane.side ? itemDrag.ids : undefined}
         onActivate={() => (activeSide = pane.side)}
         onSelect={(id) => selectItem(pane, id)}
         onMarkedIdsChange={(ids) => markItems(pane, ids)}
@@ -314,6 +473,12 @@
   {/each}
 </div>
 
+{#if itemDrag}
+  <div data-drag-preview aria-hidden="true" class="pointer-events-none fixed z-50 rounded-md border border-[#5f44b4] bg-white px-3 py-2 text-sm text-[#34405a] shadow-md" style:left={`${dragPoint.x + 14}px`} style:top={`${dragPoint.y + 14}px`}>
+    Перемещение: {itemDrag.ids.size}
+  </div>
+{/if}
+
 <CommandBar buttons={commands} />
 
 <style>
@@ -332,6 +497,15 @@
   .resizing {
     cursor: col-resize;
     user-select: none;
+  }
+
+  .dragging-items, .dragging-items :global(*) {
+    cursor: grabbing;
+    user-select: none;
+  }
+
+  .invalid-drop, .invalid-drop :global(*) {
+    cursor: not-allowed;
   }
 
   @media (max-width: 700px) {

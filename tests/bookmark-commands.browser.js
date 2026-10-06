@@ -52,7 +52,7 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     await focus(right, 'Target 1');
     clickCommand('Переместить вправо');
     await until(() => matches(right, ['Target 1', 'Command C', 'Target 2', 'Target 3']) && !command('Переместить влево').disabled);
-    assert(!row(left, 'Command C') && !left.querySelector('input:checked') && !right.querySelector('input:checked') && document.activeElement === row(right, 'Target 1'), 'Move-right falls back to the left focused row even with the right pane active and does not create marks');
+    assert(!row(left, 'Command C') && !left.querySelector('input:checked') && !right.querySelector('input:checked') && document.activeElement === row(right, 'Target 1') && selectedRow(left) === row(left, 'Command D'), 'Move-right keeps the inactive source selection at the removed row position while preserving active destination focus and leaving checkboxes unmarked');
     await browser.bookmarks.move(nodes[2].id, { parentId: source.id, index: 2 });
     await until(() => matches(left, nodes.map((node) => node.title)) && matches(right, ['Target 1', 'Target 2', 'Target 3']));
     await focus(left, 'Command E');
@@ -96,7 +96,7 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     await mark(right, 'Target 3');
     clickCommand('Переместить вправо');
     await until(() => matches(right, ['Target 1', 'Command B', 'Command E', 'Target 2', 'Target 3']) && checkbox(right, 'Command B').checked && checkbox(right, 'Command E').checked);
-    assert(!left.querySelector('input:checked') && checkbox(right, 'Target 3').checked && document.activeElement === row(right, 'Target 1') && selectedRow(left) === parentRow(left), 'Move-right always transfers left marks below the right focused row, preserves destination marks and keeps focus in the active right pane');
+    assert(!left.querySelector('input:checked') && checkbox(right, 'Target 3').checked && document.activeElement === row(right, 'Target 1') && selectedRow(left) === row(left, 'Command F'), 'Move-right preserves destination focus and marks while clamping the removed source focus to its last remaining row');
     await focus(left, 'Command C');
     clickCommand('Переместить влево');
     await until(() => matches(left, ['Command A', 'Command C', 'Command B', 'Command E', 'Target 3', 'Command D', 'Command F']) && left.querySelectorAll('input:checked').length === 3);
@@ -138,7 +138,22 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     browser.bookmarks.move = originalMove;
     clickCommand('Переместить вправо');
     await until(() => matches(right, ['Command D', 'Command A', 'Command B', 'Command E', 'Target 3']) && right.querySelectorAll('input:checked').length === 5);
-    assert(!document.querySelector('[role="alert"]') && !left.querySelector('input:checked'), 'Retrying after a partial failure moves only the remaining selected items and clears the error');
+    assert(!document.querySelector('[role="alert"]') && !left.querySelector('input:checked') && document.activeElement === row(left, 'Command F'), 'Retrying after a partial failure moves only remaining marks, clears the error and keeps source focus at the same position');
+
+    await focus(left, 'Command C');
+    clickCommand('Переместить вправо');
+    await until(() => matches(left, ['Command F']) && !command('Переместить вправо').disabled);
+    assert(document.activeElement === row(left, 'Command F') && selectedRow(right) === parentRow(right) && !checkbox(right, 'Command C').checked, 'Moving the active focused row selects the remaining row at the same position and preserves destination selection');
+    clickCommand('Переместить вправо');
+    await until(() => matches(left, []) && command('Переместить вправо').disabled);
+    assert(document.activeElement === parentRow(left) && !checkbox(right, 'Command F').checked, 'Moving the final source item falls back to the parent entry in the empty list');
+
+    for (const input of right.querySelectorAll('input:checked')) clickCheckbox(input);
+    await until(() => !right.querySelector('input:checked'));
+    await focus(right, 'Command C');
+    clickCommand('Переместить влево');
+    await until(() => matches(left, ['Command C']) && !row(right, 'Command C') && !command('Переместить влево').disabled);
+    assert(document.activeElement === row(right, 'Command D') && selectedRow(left) === parentRow(left), 'Move-left also keeps active source focus at the removed row position without changing destination selection');
 
     for (const pane of [left, right]) parentRow(pane).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     await until(() => left.querySelector('h2').textContent === fixtures.title && right.querySelector('h2').textContent === fixtures.title);
