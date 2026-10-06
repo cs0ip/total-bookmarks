@@ -4,11 +4,13 @@
   import BookmarkList from './BookmarkList.svelte';
   import CommandBar, { type CommandBarButton } from './CommandBar.svelte';
   import CreateBookmarkDialog from './CreateBookmarkDialog.svelte';
+  import KeyboardHelp from './KeyboardHelp.svelte';
   import type { CreateRequest, ItemRequest, MoveRequest } from '../bookmarks/move';
 
   type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
   type Side = 0 | 1;
   type MoveDirection = 'up' | 'down' | 'left' | 'right';
+  type PanelCommand = CommandBarButton & { key?: string; ctrlKey?: boolean; shiftKey?: boolean; description?: string };
   type FolderState = { markedIds: Set<string>; focusedId: string };
   type ItemDrag = {
     pointerId: number;
@@ -60,6 +62,7 @@
   let panels: HTMLDivElement;
   let activeSide = $state<Side>(0);
   let mutating = $state(false);
+  let helpOpen = $state(false);
   let creation = $state<{ kind: 'bookmark' | 'folder'; side: Side; parentId: string; afterId: string; createdId?: string }>();
   const commandsDisabled = $derived(loading || mutating || creation !== undefined);
   let leftShare = $state(0.5);
@@ -73,13 +76,16 @@
   const folderStates = [new SvelteMap<string, FolderState>(), new SvelteMap<string, FolderState>()];
   const emptyMarkedIds = new Set<string>();
   const lists: ({ focusSelected: (reveal?: boolean) => void; insertionAt: (y: number) => { afterId?: string; top: number } } | undefined)[] = [];
-  const commands: CommandBarButton[] = $derived([
+  const commands: PanelCommand[] = $derived([
     moveButton('up', 'Переместить вверх'),
     moveButton('down', 'Переместить вниз'),
     moveButton('left', 'Переместить влево'),
     moveButton('right', 'Переместить вправо'),
     {
       title: 'Всё',
+      description: 'Выделить все закладки и папки активной панели.',
+      key: 'a',
+      ctrlKey: true,
       separatorBefore: true,
       labelBefore: 'Выделить:',
       disabled: commandsDisabled || selectableIds(activeSide === 0 ? left : right).every((id) => markedIdsFor(activeSide === 0 ? left : right).has(id)),
@@ -87,11 +93,17 @@
     },
     {
       title: 'Ничего',
+      description: 'Снять все отметки в активной панели.',
+      key: 'd',
+      ctrlKey: true,
       disabled: commandsDisabled || markedIdsFor(activeSide === 0 ? left : right).size === 0,
       action: clearSelection
     },
     {
       title: 'Закладку',
+      description: 'Создать закладку под текущим элементом активной панели.',
+      key: 'b',
+      ctrlKey: true,
       separatorBefore: true,
       labelBefore: 'Создать:',
       disabled: commandsDisabled || !canCreateItem((activeSide === 0 ? left : right).folder?.id ?? ''),
@@ -99,16 +111,42 @@
     },
     {
       title: 'Папку',
+      description: 'Создать папку под текущим элементом активной панели.',
+      key: 'f',
+      ctrlKey: true,
+      shiftKey: true,
       disabled: commandsDisabled || !canCreateItem((activeSide === 0 ? left : right).folder?.id ?? ''),
       action: () => openCreation('folder')
     },
     {
       title: 'Удалить',
+      description: 'Удалить выделенные элементы активной панели или текущий элемент после подтверждения.',
+      key: 'Delete',
+      ctrlKey: false,
       separatorBefore: true,
       disabled: commandsDisabled || !canRemoveItems(removeRequest()),
       action: removeSelected
+    },
+    {
+      title: 'Управление',
+      icon: '?',
+      separatorBefore: true,
+      popupId: 'keyboard-help',
+      expanded: helpOpen,
+      disabled: commandsDisabled,
+      action: () => { if (helpOpen) void closeHelp(); else { cancelItemDrag(); helpOpen = true; } }
     }
   ]);
+  const commandShortcuts = $derived(commands.filter((command) => command.key).map((command) => ({
+    keys: [command.ctrlKey ? 'Ctrl' : '', command.shiftKey ? 'Shift' : '', ({ ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Delete: 'Del' } as Record<string, string>)[command.key!] ?? command.key!.toUpperCase()].filter(Boolean).join('+'),
+    description: command.description ?? command.title
+  })));
+
+  async function closeHelp(): Promise<void> {
+    helpOpen = false;
+    await tick();
+    if (document.hasFocus() && paneSideFor(document.activeElement) === undefined) focusActivePane(false);
+  }
 
   function markedIdsFor(pane: PaneView): Set<string> {
     return folderStates[pane.side].get(pane.folder?.id ?? '')?.markedIds ?? emptyMarkedIds;
@@ -198,10 +236,18 @@
     };
   }
 
-  function moveButton(direction: MoveDirection, title: string): CommandBarButton {
+  function moveButton(direction: MoveDirection, title: string): PanelCommand {
     const request = moveRequest(direction);
     return {
       title,
+      description: {
+        up: 'Переместить выделенные элементы активной панели вверх, сохраняя их порядок. Без отметок перемещается текущий элемент.',
+        down: 'Переместить выделенные элементы активной панели вниз, сохраняя их порядок. Без отметок перемещается текущий элемент.',
+        left: 'Переместить выделенные элементы правой панели под текущий элемент левой. Без отметок перемещается текущий элемент правой панели.',
+        right: 'Переместить выделенные элементы левой панели под текущий элемент правой. Без отметок перемещается текущий элемент левой панели.'
+      }[direction],
+      key: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }[direction],
+      ctrlKey: true,
       symbol: { up: '↑', down: '↓', left: '←', right: '→' }[direction],
       disabled: commandsDisabled || !request || !canMoveItems(request),
       action: () => moveSelected(direction)
@@ -376,7 +422,7 @@
   }
 
   function focusActivePane(reveal = true): void {
-    if (creation) return;
+    if (creation || helpOpen) return;
     lists[activeSide]?.focusSelected(reveal);
   }
 
@@ -445,6 +491,11 @@
 
     function onDocumentMousedown(event: MouseEvent): void {
       if (creation) return;
+      if (helpOpen) {
+        if (event.target instanceof Element && event.target.closest('[data-keyboard-help]')) return;
+        if (event.target instanceof Element && event.target.closest('button[aria-controls="keyboard-help"]')) { event.preventDefault(); return; }
+        void closeHelp();
+      }
       if (event.button !== 0) return;
       const side = paneSideFor(event.target);
       if (side !== undefined) activeSide = side;
@@ -462,7 +513,19 @@
     }
 
     function onDocumentKeydown(event: KeyboardEvent): void {
-      if (creation) return;
+      if (creation || helpOpen || event.isComposing || event.defaultPrevented) return;
+      if (!event.altKey && !event.metaKey) {
+        // Physical letter keys keep the shortcuts available in other layouts.
+        const key = event.code.startsWith('Key') ? event.code.slice(3).toLowerCase() : event.key.toLowerCase();
+        const command = commands.find((command) =>
+          command.key?.toLowerCase() === key && command.ctrlKey === event.ctrlKey && Boolean(command.shiftKey) === event.shiftKey
+        );
+        if (command) {
+          event.preventDefault();
+          if (!command.disabled && !event.repeat) void command.action();
+          return;
+        }
+      }
       if (event.ctrlKey || event.altKey || event.metaKey) return;
       let side: Side;
       switch (event.key) {
@@ -546,7 +609,7 @@
         markedIds={markedIdsFor(pane)}
         parentFolderId={pane.folder?.parentId}
         {loading}
-        active={activeSide === pane.side && !creation}
+        active={activeSide === pane.side && !creation && !helpOpen}
         dropMarkerTop={dropTarget?.side === pane.side ? dropTarget.top : undefined}
         draggedIds={itemDrag?.side === pane.side ? itemDrag.ids : undefined}
         onActivate={() => (activeSide = pane.side)}
@@ -593,7 +656,10 @@
   </div>
 {/if}
 
-<CommandBar buttons={commands} label="Переместить:" />
+<div class="relative shrink-0">
+  <CommandBar buttons={commands} label="Переместить:" />
+  {#if helpOpen}<KeyboardHelp commands={commandShortcuts} onClose={() => void closeHelp()} />{/if}
+</div>
 
 {#if creation}
   <CreateBookmarkDialog kind={creation.kind} onCreate={createItem} onClose={closeCreation} />

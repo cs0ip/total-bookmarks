@@ -1,4 +1,4 @@
-export async function runBookmarkCreationTests({ fixtures, left, right, row, parentRow, checkbox, selectedRow, open, until, command, clickCommand, focus, mark }) {
+export async function runBookmarkCreationTests({ fixtures, left, right, row, parentRow, checkbox, selectedRow, open, until, command, clickCommand, pressCommand, focus, mark }) {
   const results = [];
   const assert = (condition, message) => {
     if (!condition) throw new Error(message);
@@ -12,8 +12,9 @@ export async function runBookmarkCreationTests({ fixtures, left, right, row, par
     input(name).dispatchEvent(new Event('input', { bubbles: true }));
     await Promise.resolve();
   }
-  async function show(title) {
-    clickCommand(title);
+  async function show(title, shortcut = false) {
+    if (shortcut) assert(pressCommand(title === 'Закладку' ? 'b' : 'f', { shiftKey: title === 'Папку' }), 'Creation shortcut overrides the browser default and opens the shared modal');
+    else clickCommand(title);
     await until(() => dialog()?.open && document.activeElement === input('title'));
   }
   const order = (pane) => [...pane.querySelectorAll('[data-bookmark-row]')].filter((node) => node.dataset.bookmarkId !== '..')
@@ -34,13 +35,14 @@ export async function runBookmarkCreationTests({ fixtures, left, right, row, par
     await mark(left, 'Create A');
     await mark(right, 'Create R1');
     await focus(left, 'Create A');
-    await show('Закладку');
+    await show('Закладку', true);
     assert(dialog().querySelector('h2').textContent === 'Создать закладку' && input('url') && [...document.querySelectorAll('[aria-label="Команды"] button')].every((button) => button.disabled), 'Bookmark creation opens a modal with name and address fields and disables background commands');
     const arrow = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
     input('title').dispatchEvent(arrow);
     const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
     input('title').dispatchEvent(tab);
     assert(!arrow.defaultPrevented && !tab.defaultPrevented && document.activeElement === input('title') && selectedRow(left) === row(left, 'Create A'), 'Pane keyboard shortcuts leave modal fields and their native navigation alone');
+    assert(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'a', 'd', 'b', 'Delete'].every((key) => !pressCommand(key)) && !pressCommand('f', { shiftKey: true }) && left.querySelectorAll('input:checked').length === 1 && right.querySelectorAll('input:checked').length === 1 && dialog().querySelector('h2').textContent === 'Создать закладку', 'Command shortcuts do not intercept editing, alter marks or trigger background actions while a creation dialog is open');
     input('url').dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true, cancelable: true }));
     input('url').focus();
     assert(document.activeElement === input('url'), 'Mouse focus can move to the address field without returning to a pane');
@@ -78,7 +80,7 @@ export async function runBookmarkCreationTests({ fixtures, left, right, row, par
     browser.bookmarks.create = async (...args) => { calls++; return originalCreate(...args); };
 
     await focus(right, 'Create R1');
-    await show('Папку');
+    await show('Папку', true);
     assert(dialog().querySelector('h2').textContent === 'Создать папку' && !dialog().querySelector('input[name="url"]'), 'Folder creation asks only for its name');
     await field('title', 'Created folder');
     submit();

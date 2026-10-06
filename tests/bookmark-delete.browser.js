@@ -1,4 +1,4 @@
-export async function runBookmarkDeletionTests({ fixtures, left, right, row, parentRow, checkbox, selectedRow, open, until, command, clickCommand, focus, mark }) {
+export async function runBookmarkDeletionTests({ fixtures, left, right, row, parentRow, checkbox, selectedRow, open, until, command, clickCommand, pressCommand, focus, mark }) {
   const results = [];
   const assert = (condition, message) => {
     if (!condition) throw new Error(message);
@@ -31,10 +31,10 @@ export async function runBookmarkDeletionTests({ fixtures, left, right, row, par
     await mark(left, branch.title);
     await mark(right, 'Delete middle');
     await focus(left, 'Delete last');
-    clickCommand('Всё');
+    assert(pressCommand('ф', { code: 'KeyA' }), 'Ctrl+A selects all through the command in a non-Latin keyboard layout');
     await until(() => left.querySelectorAll('input:checked').length === 4);
     assert(right.querySelectorAll('input:checked').length === 1 && checkbox(left, branch.title).checked && document.activeElement === row(left, 'Delete last') && command('Всё').disabled && left.querySelector('header').textContent.includes('Выбрано: 4'), 'Select-all completes partial left selection with folders and bookmarks, excludes parent and separator rows and preserves focus and right marks');
-    clickCommand('Ничего');
+    assert(pressCommand('d'), 'Ctrl+D clears the active pane selection and overrides browser bookmarking');
     await until(() => !left.querySelector('input:checked'));
     assert(checkbox(right, 'Delete middle').checked && document.activeElement === row(left, 'Delete last') && command('Ничего').disabled && !left.querySelector('header').textContent.includes('Выбрано:'), 'Clear selection removes only active pane marks and count while retaining focus and the other pane selection');
     await focus(right, 'Delete middle');
@@ -62,7 +62,7 @@ export async function runBookmarkDeletionTests({ fixtures, left, right, row, par
       return removed;
     };
     browser.bookmarks.removeTree = async (...args) => { calls++; return originalRemoveTree(...args); };
-    clickCommand('Удалить');
+    assert(pressCommand('Delete'), 'Delete invokes the shared deletion confirmation handler');
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert(calls === 0 && row(left, first.title) && row(left, branch.title) && left.querySelectorAll('input:checked').length === 2 && document.activeElement === row(left, 'Delete middle') && !command('Удалить').disabled, 'Cancelling deletion confirmation makes no bookmark API calls and preserves marks and focus');
     assert(confirmations.length === 1 && confirmations[0].includes('Количество элементов: 2.') && confirmations[0].includes('Папки будут удалены вместе с содержимым.'), 'Deletion confirmation shows the selected item count and explains recursive folder deletion');
@@ -85,7 +85,7 @@ export async function runBookmarkDeletionTests({ fixtures, left, right, row, par
     assert(command('Удалить').disabled, 'Delete cannot remove the Firefox root folders');
 
     await focus(left, 'Delete last');
-    clickCommand('Удалить');
+    assert(pressCommand('Delete'), 'Delete removes a focused unmarked row after confirmation');
     assert(confirmations.at(-1).includes('Количество элементов: 1.'), 'Deletion confirmation counts the focused row as one item when no checkboxes are marked');
     await until(() => !row(left, 'Delete last') && !command('Удалить').disabled);
     assert(document.activeElement === row(left, 'Delete middle') && !left.querySelector('input:checked'), 'Deleting a focused unmarked last row selects the nearest remaining row');

@@ -13,6 +13,11 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     button.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true, cancelable: true }));
     button.click();
   }
+  function pressCommand(key, options = {}) {
+    const event = new KeyboardEvent('keydown', { key, ctrlKey: key !== 'Delete', bubbles: true, cancelable: true, ...options });
+    document.activeElement.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
   async function focus(pane, title) {
     row(pane, title).focus();
     await until(() => document.activeElement === row(pane, title) && selectedRow(pane) === row(pane, title));
@@ -39,19 +44,50 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     open(right, target.title);
     await until(() => row(left, 'Command F') && row(right, 'Target 3'));
     const bar = document.querySelector('[aria-label="Команды"]');
-    assert([...bar.querySelectorAll('button')].map((button) => button.getAttribute('aria-label')).join(',') === 'Переместить вверх,Переместить вниз,Переместить влево,Переместить вправо,Всё,Ничего,Закладку,Папку,Удалить' && bar.getBoundingClientRect().top >= Math.max(left.getBoundingClientRect().bottom, right.getBoundingClientRect().bottom), 'Movement, selection, creation and delete commands appear in the configured order below both panels');
-    assert([...bar.querySelectorAll('button')].slice(0, 4).map((button) => button.textContent.trim()).join('') === '↑↓←→' && bar.textContent.includes('Переместить:') && bar.textContent.includes('Выделить:') && bar.textContent.split('|').length === 4 && command('Всё').previousElementSibling.textContent === 'Выделить:' && command('Закладку').previousElementSibling.textContent === 'Создать:' && command('Удалить').previousElementSibling.textContent === '|', 'Command groups have compact captions, arrow buttons, separators and descriptive accessible labels');
-    assert([...bar.querySelectorAll('button')].filter((button) => !['Всё', 'Закладку', 'Папку'].includes(button.getAttribute('aria-label'))).every((button) => button.disabled) && !command('Всё').disabled && !command('Закладку').disabled && !command('Папку').disabled, 'Selection and creation remain available when both panes have unmarked items and their parent entries focused');
+    assert([...bar.querySelectorAll('button')].map((button) => button.getAttribute('aria-label')).join(',') === 'Переместить вверх,Переместить вниз,Переместить влево,Переместить вправо,Всё,Ничего,Закладку,Папку,Удалить,Управление' && bar.getBoundingClientRect().top >= Math.max(left.getBoundingClientRect().bottom, right.getBoundingClientRect().bottom), 'Movement, selection, creation, delete and help commands appear in the configured order below both panels');
+    assert([...bar.querySelectorAll('button')].slice(0, 4).map((button) => button.textContent.trim()).join('') === '↑↓←→' && bar.textContent.includes('Переместить:') && bar.textContent.includes('Выделить:') && bar.textContent.split('|').length === 5 && command('Всё').previousElementSibling.textContent === 'Выделить:' && command('Закладку').previousElementSibling.textContent === 'Создать:' && command('Удалить').previousElementSibling.textContent === '|' && command('Управление').previousElementSibling.textContent === '|' && command('Управление').textContent.includes('?'), 'Command groups have compact captions, arrow buttons, separators and a help icon');
+    assert([...bar.querySelectorAll('button')].filter((button) => !['Всё', 'Закладку', 'Папку', 'Управление'].includes(button.getAttribute('aria-label'))).every((button) => button.disabled) && !command('Всё').disabled && !command('Закладку').disabled && !command('Папку').disabled && !command('Управление').disabled, 'Selection, creation and help remain available when both panes have unmarked items and their parent entries focused');
+    const help = () => document.querySelector('[data-keyboard-help]');
+    const helpContent = () => document.querySelector('[data-keyboard-help-content]');
+    const previousFocus = document.activeElement;
+    clickCommand('Управление');
+    await until(() => help() && document.activeElement === helpContent());
+    const helpBounds = help().getBoundingClientRect();
+    const keys = [...help().querySelectorAll('kbd')].map((key) => key.textContent.trim());
+    assert(help().getAttribute('aria-modal') === 'false' && command('Управление').getAttribute('aria-expanded') === 'true' && helpBounds.top >= 0 && helpBounds.bottom <= bar.getBoundingClientRect().top && helpContent().scrollHeight > helpContent().clientHeight, 'Help opens above the command bar as a nonmodal scrollable popup within the viewport');
+    assert(['↑ / ↓', '← / →', 'Tab / Shift+Tab', 'Home / End', 'Enter', 'Backspace', 'Пробел', 'Insert / Shift+↓', 'Shift+↑', 'Shift+Home', 'Shift+End', 'Ctrl+↑', 'Ctrl+↓', 'Ctrl+←', 'Ctrl+→', 'Ctrl+A', 'Ctrl+D', 'Ctrl+B', 'Ctrl+Shift+F', 'Del', 'Esc'].every((key) => keys.includes(key)) && help().textContent.includes('Повторное выделение снимает отметку'), 'Help lists all list and command shortcuts with current folder creation binding and selection toggle semantics');
+    assert(!pressCommand('ArrowRight', { ctrlKey: false }) && !pressCommand('a') && !left.querySelector('input:checked') && !right.querySelector('input:checked') && document.activeElement === helpContent(), 'Keyboard input in help does not switch panes or execute background selection commands');
+    assert(pressCommand('Escape', { ctrlKey: false }), 'Escape is consumed by the help popup');
+    await until(() => !help() && document.activeElement === previousFocus);
+    assert(command('Управление').getAttribute('aria-expanded') === 'false', 'Closing help restores the original active pane focus and collapsed button state');
+    clickCommand('Управление');
+    await until(() => help() && document.activeElement === helpContent());
+    await focus(right, 'Target 2');
+    await until(() => !help());
+    assert(document.activeElement === row(right, 'Target 2'), 'Focusing a pane closes nonmodal help and keeps focus on the newly chosen row');
+    clickCommand('Управление');
+    await until(() => help() && document.activeElement === helpContent());
+    clickCommand('Управление');
+    await until(() => !help() && document.activeElement === row(right, 'Target 2'));
+    assert(!help(), 'Clicking the help button again closes its popup');
+    clickCommand('Управление');
+    await until(() => help() && document.activeElement === helpContent());
+    window.dispatchEvent(new Event('blur'));
+    await until(() => !help());
+    assert(!help(), 'Losing window focus dismisses help');
+    previousFocus.focus();
+    await until(() => document.activeElement === previousFocus);
     await focus(left, 'Command C');
     assert(!command('Переместить вверх').disabled && !command('Переместить вниз').disabled && !command('Переместить вправо').disabled, 'A focused real row enables source movement commands without checkbox marks');
-    clickCommand('Переместить вверх');
+    assert(!pressCommand('ArrowUp', { altKey: true }) && !pressCommand('ArrowUp', { shiftKey: true }) && !pressCommand('ArrowUp', { metaKey: true }) && pressCommand('ArrowUp', { repeat: true }) && matches(left, nodes.map((node) => node.title)), 'Extra modifiers do not trigger commands and held command keys cannot repeatedly move items');
+    assert(pressCommand('ArrowUp'), 'Ctrl+Up overrides the browser default and invokes move-up');
     await until(() => matches(left, ['Command A', 'Command C', 'Command B', 'Command D', 'Command E', 'Command F']) && !command('Переместить вверх').disabled);
     assert(document.activeElement === row(left, 'Command C') && !left.querySelector('input:checked'), 'Moving a focused row upward preserves focus without adding a checkbox mark');
-    clickCommand('Переместить вниз');
+    assert(pressCommand('ArrowDown'), 'Ctrl+Down invokes move-down through the shared command');
     await until(() => matches(left, nodes.map((node) => node.title)) && !command('Переместить вниз').disabled);
     assert(document.activeElement === row(left, 'Command C') && !left.querySelector('input:checked'), 'Moving a focused row downward restores order without marking it');
     await focus(right, 'Target 1');
-    clickCommand('Переместить вправо');
+    assert(pressCommand('ArrowRight'), 'Ctrl+Right invokes left-to-right movement even when the right pane is active');
     await until(() => matches(right, ['Target 1', 'Command C', 'Target 2', 'Target 3']) && !command('Переместить влево').disabled);
     assert(!row(left, 'Command C') && !left.querySelector('input:checked') && !right.querySelector('input:checked') && document.activeElement === row(right, 'Target 1') && selectedRow(left) === row(left, 'Command D'), 'Move-right keeps the inactive source selection at the removed row position while preserving active destination focus and leaving checkboxes unmarked');
     await browser.bookmarks.move(nodes[2].id, { parentId: source.id, index: 2 });
@@ -73,6 +109,7 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     await new Promise((resolve) => setTimeout(resolve, 80));
     assert(matches(left, nodes.map((node) => node.title)) && left.querySelectorAll('input:checked').length === 2 && [...bar.querySelectorAll('button')].every((button) => button.disabled), 'A batch keeps the original visible snapshot and marks while disabling commands');
     clickCommand('Переместить вверх');
+    assert(pressCommand('ArrowDown') && pressCommand('a') && left.querySelectorAll('input:checked').length === 2, 'Movement and selection shortcuts are consumed without changing a busy batch');
     assert(calls === 1, 'A second command cannot start while a move batch is in progress');
     release();
     await until(() => matches(left, ['Command B', 'Command E', 'Command A', 'Command C', 'Command D', 'Command F']) && !command('Переместить вверх').disabled);
@@ -99,7 +136,7 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     await until(() => matches(right, ['Target 1', 'Command B', 'Command E', 'Target 2', 'Target 3']) && checkbox(right, 'Command B').checked && checkbox(right, 'Command E').checked);
     assert(!left.querySelector('input:checked') && checkbox(right, 'Target 3').checked && document.activeElement === row(right, 'Target 1') && selectedRow(left) === row(left, 'Command F'), 'Move-right preserves destination focus and marks while clamping the removed source focus to its last remaining row');
     await focus(left, 'Command C');
-    clickCommand('Переместить влево');
+    assert(pressCommand('ArrowLeft'), 'Ctrl+Left invokes right-to-left movement even when the left pane is active');
     await until(() => matches(left, ['Command A', 'Command C', 'Command B', 'Command E', 'Target 3', 'Command D', 'Command F']) && left.querySelectorAll('input:checked').length === 3);
     assert(matches(right, ['Target 1', 'Target 2']) && !right.querySelector('input:checked') && document.activeElement === row(left, 'Command C'), 'Move-left transfers the right selection in order below the left focused row and preserves left focus');
 
@@ -114,6 +151,7 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     open(right, 'Command B');
     await until(() => right.querySelector('h2').textContent === 'Command B');
     assert(command('Переместить вправо').disabled, 'A selected folder cannot be moved into itself or a selected ancestor into its descendant');
+    assert(pressCommand('ArrowRight') && right.querySelector('h2').textContent === 'Command B', 'A disabled move shortcut is consumed without switching panes or moving an invalid selection');
     parentRow(right).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     await until(() => right.querySelector('h2').textContent === source.title);
     parentRow(right).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
@@ -157,9 +195,9 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     assert(document.activeElement === row(right, 'Command D') && selectedRow(left) === parentRow(left), 'Move-left also keeps active source focus at the removed row position without changing destination selection');
 
     const { runBookmarkDeletionTests } = await import('./bookmark-delete.browser.js');
-    results.push(...await runBookmarkDeletionTests({ fixtures, left, right, row, parentRow, checkbox, selectedRow, open, until, clickCheckbox, command, clickCommand, focus, mark }));
+    results.push(...await runBookmarkDeletionTests({ fixtures, left, right, row, parentRow, checkbox, selectedRow, open, until, clickCheckbox, command, clickCommand, pressCommand, focus, mark }));
     const { runBookmarkCreationTests } = await import('./bookmark-create.browser.js');
-    results.push(...await runBookmarkCreationTests({ fixtures, left, right, row, parentRow, checkbox, selectedRow, open, until, command, clickCommand, focus, mark }));
+    results.push(...await runBookmarkCreationTests({ fixtures, left, right, row, parentRow, checkbox, selectedRow, open, until, command, clickCommand, pressCommand, focus, mark }));
     for (const pane of [left, right]) {
       if (pane.querySelector('h2').textContent !== fixtures.title) parentRow(pane).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     }

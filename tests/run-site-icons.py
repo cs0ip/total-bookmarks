@@ -340,6 +340,40 @@ def run():
                                 raise RuntimeError(json.dumps(checked, indent=2))
                             return checked.get('value')
 
+                        def browser_key(key, modifiers=None):
+                            # Content WebDriver actions bypass reserved browser
+                            # shortcuts. Start at the chrome window instead.
+                            command('Marionette:SetContext', {'value': 'chrome'})
+                            try:
+                                command('WebDriver:ExecuteAsyncScript', {
+                                    'script': '''
+                                        const done = arguments[arguments.length - 1];
+                                        if (!window.shortcutEventUtils) {
+                                            window.shortcutEventUtils = { window, parent: window, _EU_Ci: Ci, _EU_Cc: Cc, _EU_Cu: Cu, _EU_ChromeUtils: ChromeUtils };
+                                            Services.scriptloader.loadSubScript('chrome://remote/content/external/EventUtils.js', window.shortcutEventUtils);
+                                        }
+                                        gBrowser.selectedBrowser.focus();
+                                        window.shortcutEventUtils.synthesizeKey(arguments[0], arguments[1], window);
+                                        setTimeout(done, 100);
+                                    ''', 'args': [key, modifiers or {}]
+                                })
+                            finally:
+                                command('Marionette:SetContext', {'value': 'content'})
+
+                        def browser_shortcut_state():
+                            command('Marionette:SetContext', {'value': 'chrome'})
+                            try:
+                                return command('WebDriver:ExecuteScript', {
+                                    'script': '''return {
+                                        windows: [...Services.wm.getEnumerator('navigator:browser')].length,
+                                        sidebar: SidebarController.currentID,
+                                        bookmarkPopup: document.getElementById('editBookmarkPanel')?.state ?? 'closed',
+                                        reservedNewWindow: document.getElementById('key_newNavigator').getAttribute('reserved')
+                                    };''', 'args': []
+                                })['value']
+                            finally:
+                                command('Marionette:SetContext', {'value': 'content'})
+
                         pointer_script("window.pointerTests = await import('./bookmark-pointer.browser.js'); await window.pointerTests.prepare();")
                         try:
                             for side in [0, 1]:
@@ -363,9 +397,24 @@ def run():
                             pointer_script('await window.pointerTests.cleanup(); delete window.pointerTests;')
                         pointer_script("window.dragTests = await import('./bookmark-drag.browser.js'); await window.dragTests.prepare();")
                         try:
+                            pointer_script('window.creationTestFocus = document.activeElement;')
+                            shortcut_state = browser_shortcut_state()
+                            if shortcut_state['reservedNewWindow'] != 'true':
+                                raise RuntimeError('Firefox new-window shortcut is no longer reserved; review the shortcut configuration')
+                            browser_key('a', {'ctrlKey': True})
                             pointer_script('''
-                                window.creationTestFocus = document.activeElement;
-                                document.querySelector('[aria-label="Команды"] button[aria-label="Папку"]').click();
+                                const pane = document.activeElement.closest('[data-bookmark-pane]');
+                                if (!pane || pane.querySelectorAll('input:checked').length !== pane.querySelectorAll('input[type="checkbox"]').length || !pane.querySelector('input:checked')) throw new Error('Browser-level Ctrl+A did not select the active pane items');
+                            ''')
+                            browser_key('d', {'ctrlKey': True})
+                            pointer_script('''
+                                if (document.activeElement.closest('[data-bookmark-pane]').querySelector('input:checked')) throw new Error('Browser-level Ctrl+D did not clear the active pane marks');
+                            ''')
+                            if browser_shortcut_state() != shortcut_state:
+                                raise RuntimeError('Selection shortcuts triggered Firefox UI')
+                            result['results'].append('Browser-level Ctrl+A and Ctrl+D change pane selection without opening Firefox bookmark UI')
+                            browser_key('b', {'ctrlKey': True})
+                            pointer_script('''
                                 const deadline = Date.now() + 10000;
                                 while (Date.now() < deadline) {
                                     const dialog = document.querySelector('[data-bookmark-create-dialog]');
@@ -374,6 +423,9 @@ def run():
                                 }
                                 throw new Error('The native creation dialog did not receive input focus');
                             ''')
+                            if browser_shortcut_state() != shortcut_state:
+                                raise RuntimeError('Ctrl+B triggered Firefox UI alongside the creation dialog')
+                            result['results'].append('Browser-level Ctrl+B opens bookmark creation without opening the Firefox sidebar')
                             command('WebDriver:PerformActions', {'actions': [{
                                 'type': 'key', 'id': 'creation-keyboard', 'actions': [
                                     {'type': 'keyDown', 'value': '\ue014'},
@@ -384,7 +436,7 @@ def run():
                             }]})
                             pointer_script('''
                                 const dialog = document.querySelector('[data-bookmark-create-dialog]');
-                                if (!dialog?.open || !dialog.contains(document.activeElement) || document.activeElement.textContent.trim() !== 'Отмена') {
+                                if (!dialog?.open || document.activeElement !== dialog.querySelector('input[name="url"]')) {
                                     throw new Error('Native keyboard navigation escaped the creation dialog');
                                 }
                             ''')
@@ -407,6 +459,60 @@ def run():
                                 throw new Error('Escape did not close the creation modal and restore pane focus');
                             ''')
                             result['results'].append('Native Escape cancels the creation dialog and restores the previous focused pane row')
+                            pointer_script('window.creationTestFocus = document.activeElement;')
+                            browser_key('f', {'ctrlKey': True, 'shiftKey': True})
+                            pointer_script('''
+                                const dialog = document.querySelector('[data-bookmark-create-dialog]');
+                                if (!dialog?.open || dialog.querySelector('h2').textContent !== 'Создать папку' || document.activeElement !== dialog.querySelector('input[name="title"]')) throw new Error('Browser-level Ctrl+Shift+F did not open folder creation');
+                            ''')
+                            if browser_shortcut_state() != shortcut_state:
+                                raise RuntimeError('Ctrl+Shift+F triggered Firefox UI alongside folder creation')
+                            browser_key('KEY_Escape')
+                            pointer_script('''
+                                if (document.querySelector('[data-bookmark-create-dialog]') || document.activeElement !== window.creationTestFocus) throw new Error('Closing folder creation did not restore pane focus');
+                                delete window.creationTestFocus;
+                            ''')
+                            result['results'].append('Browser-level Ctrl+Shift+F opens folder creation without opening Firefox UI and restores pane focus after cancellation')
+                            help_point = pointer_script('''
+                                window.helpTestFocus = document.activeElement;
+                                window.helpTestScroll = [...document.querySelectorAll('[data-bookmark-list]')].map(list => list.scrollTop);
+                                document.querySelector('[aria-label="Команды"] button[aria-label="Управление"]').click();
+                                const deadline = Date.now() + 10000;
+                                while (Date.now() < deadline) {
+                                    const content = document.querySelector('[data-keyboard-help-content]');
+                                    if (content && document.activeElement === content) {
+                                        const bounds = content.getBoundingClientRect();
+                                        return {x: Math.round(bounds.left + bounds.width / 2), y: Math.round(bounds.top + bounds.height / 2)};
+                                    }
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('Help did not receive keyboard focus');
+                            ''')
+                            command('WebDriver:PerformActions', {'actions': [{
+                                'type': 'wheel', 'id': 'help-wheel', 'actions': [{
+                                    'type': 'scroll', 'origin': 'viewport', **help_point,
+                                    'deltaX': 0, 'deltaY': 500, 'duration': 0
+                                }]
+                            }]})
+                            pointer_script('''
+                                const deadline = Date.now() + 10000;
+                                while (Date.now() < deadline) {
+                                    if (document.querySelector('[data-keyboard-help-content]')?.scrollTop > 0) {
+                                        if ([...document.querySelectorAll('[data-bookmark-list]')].some((list, index) => list.scrollTop !== window.helpTestScroll[index])) throw new Error('Scrolling help moved a bookmark list');
+                                        return;
+                                    }
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('Native wheel did not scroll help');
+                            ''')
+                            result['results'].append('Native wheel scrolling moves only the shortcut help content and keeps the popup open')
+                            browser_key('KEY_Escape')
+                            pointer_script('''
+                                if (document.querySelector('[data-keyboard-help]') || document.activeElement !== window.helpTestFocus) throw new Error('Escape did not close help and restore the active pane focus');
+                                delete window.helpTestFocus;
+                                delete window.helpTestScroll;
+                            ''')
+                            result['results'].append('Browser-level Escape closes nonmodal shortcut help and restores pane focus')
                             for case in ['reorder', 'right', 'left', 'empty', 'cycle', 'escape', 'outside', 'parent', 'same-folder', 'scroll']:
                                 points = pointer_script('return await window.dragTests.startCase(arguments[0]);', [case])
                                 pointer_actions([
