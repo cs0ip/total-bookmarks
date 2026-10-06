@@ -1,11 +1,22 @@
 type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
 
-export type MoveRequest = {
+export type ItemRequest = {
   sourceId: string;
-  destinationId: string;
   ids: string[];
+};
+
+export type MoveRequest = ItemRequest & {
+  destinationId: string;
   direction?: 'up' | 'down';
   afterId?: string;
+};
+
+export type CreateRequest = {
+  parentId: string;
+  afterId?: string;
+  type: 'bookmark' | 'folder';
+  title: string;
+  url?: string;
 };
 
 export function planMoves(source: BookmarkNode[], destination: BookmarkNode[], request: MoveRequest) {

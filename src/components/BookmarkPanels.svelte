@@ -3,7 +3,8 @@
   import { SvelteMap } from 'svelte/reactivity';
   import BookmarkList from './BookmarkList.svelte';
   import CommandBar, { type CommandBarButton } from './CommandBar.svelte';
-  import type { MoveRequest } from '../bookmarks/move';
+  import CreateBookmarkDialog from './CreateBookmarkDialog.svelte';
+  import type { CreateRequest, ItemRequest, MoveRequest } from '../bookmarks/move';
 
   type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
   type Side = 0 | 1;
@@ -35,6 +36,10 @@
     onOpenBookmark: (url: string) => void | Promise<void>;
     canMoveItems: (request: MoveRequest) => boolean;
     onMoveItems: (request: MoveRequest) => Promise<string[]>;
+    canRemoveItems: (request: ItemRequest) => boolean;
+    onRemoveItems: (request: ItemRequest) => Promise<void>;
+    canCreateItem: (parentId: string) => boolean;
+    onCreateItem: (request: CreateRequest) => Promise<string | undefined>;
   };
 
   let {
@@ -45,12 +50,18 @@
     onOpenFolder,
     onOpenBookmark,
     canMoveItems,
-    onMoveItems
+    onMoveItems,
+    canRemoveItems,
+    onRemoveItems,
+    canCreateItem,
+    onCreateItem
   }: Props = $props();
 
   let panels: HTMLDivElement;
   let activeSide = $state<Side>(0);
-  let moving = $state(false);
+  let mutating = $state(false);
+  let creation = $state<{ kind: 'bookmark' | 'folder'; side: Side; parentId: string; afterId: string; createdId?: string }>();
+  const commandsDisabled = $derived(loading || mutating || creation !== undefined);
   let leftShare = $state(0.5);
   let drag = $state<{ pointerId: number; offset: number } | null>(null);
   let pendingItemDrag: ItemDrag | undefined;
@@ -65,24 +76,123 @@
   const commands: CommandBarButton[] = $derived([
     moveButton('up', 'Переместить вверх'),
     moveButton('down', 'Переместить вниз'),
+    moveButton('left', 'Переместить влево'),
     moveButton('right', 'Переместить вправо'),
-    moveButton('left', 'Переместить влево')
+    {
+      title: 'Всё',
+      separatorBefore: true,
+      labelBefore: 'Выделить:',
+      disabled: commandsDisabled || selectableIds(activeSide === 0 ? left : right).every((id) => markedIdsFor(activeSide === 0 ? left : right).has(id)),
+      action: selectAll
+    },
+    {
+      title: 'Ничего',
+      disabled: commandsDisabled || markedIdsFor(activeSide === 0 ? left : right).size === 0,
+      action: clearSelection
+    },
+    {
+      title: 'Закладку',
+      separatorBefore: true,
+      labelBefore: 'Создать:',
+      disabled: commandsDisabled || !canCreateItem((activeSide === 0 ? left : right).folder?.id ?? ''),
+      action: () => openCreation('bookmark')
+    },
+    {
+      title: 'Папку',
+      disabled: commandsDisabled || !canCreateItem((activeSide === 0 ? left : right).folder?.id ?? ''),
+      action: () => openCreation('folder')
+    },
+    {
+      title: 'Удалить',
+      separatorBefore: true,
+      disabled: commandsDisabled || !canRemoveItems(removeRequest()),
+      action: removeSelected
+    }
   ]);
 
   function markedIdsFor(pane: PaneView): Set<string> {
     return folderStates[pane.side].get(pane.folder?.id ?? '')?.markedIds ?? emptyMarkedIds;
   }
 
+  function openCreation(kind: 'bookmark' | 'folder'): void {
+    const pane = activeSide === 0 ? left : right;
+    if (commandsDisabled || !pane.folder || !canCreateItem(pane.folder.id)) return;
+    cancelItemDrag();
+    creation = { kind, side: pane.side, parentId: pane.folder.id, afterId: pane.selectedId };
+  }
+
+  async function closeCreation(): Promise<void> {
+    const destination = creation;
+    creation = undefined;
+    if (destination?.createdId) {
+      const pane = destination.side === 0 ? left : right;
+      if (pane.folder?.id === destination.parentId) selectItem(pane, destination.createdId);
+    }
+    await tick();
+    focusActivePane();
+  }
+
+  async function createItem(fields: { title: string; url?: string }): Promise<boolean> {
+    const destination = creation;
+    if (!destination || mutating || !canCreateItem(destination.parentId)) return false;
+    mutating = true;
+    try {
+      const id = await onCreateItem({ parentId: destination.parentId, afterId: destination.afterId, type: destination.kind, ...fields });
+      if (!id) return false;
+      // Closing a native dialog first restores its old focused element.
+      // Select the created row in onclose, after that restoration has finished.
+      creation = { ...destination, createdId: id };
+      return true;
+    } finally {
+      mutating = false;
+    }
+  }
+
+  function selectedIds(pane: PaneView): string[] {
+    const marked = pane.items.filter((item) => markedIdsFor(pane).has(item.id));
+    const focused = pane.items.find((item) => item.id === pane.selectedId && item.type !== 'separator');
+    return marked.length ? marked.map((item) => item.id) : focused ? [focused.id] : [];
+  }
+
+  function removeRequest(): ItemRequest {
+    const pane = activeSide === 0 ? left : right;
+    return { sourceId: pane.folder?.id ?? '', ids: selectedIds(pane) };
+  }
+
+  function clearSelection(): void {
+    if (!loading && !mutating) markItems(activeSide === 0 ? left : right, new Set());
+  }
+
+  function selectableIds(pane: PaneView): string[] {
+    return pane.items.filter((item) => item.type !== 'separator').map((item) => item.id);
+  }
+
+  function selectAll(): void {
+    if (loading || mutating) return;
+    const pane = activeSide === 0 ? left : right;
+    markItems(pane, new Set(selectableIds(pane)));
+  }
+
+  async function removeSelected(): Promise<void> {
+    const request = removeRequest();
+    if (loading || mutating || !canRemoveItems(request)) return;
+    if (!window.confirm(`Удалить выбранные элементы?\nКоличество элементов: ${request.ids.length}.\nПапки будут удалены вместе с содержимым.`)) return;
+    mutating = true;
+    try {
+      await onRemoveItems(request);
+    } finally {
+      mutating = false;
+    }
+  }
+
   function moveRequest(direction: MoveDirection): MoveRequest | undefined {
     const source = direction === 'right' ? left : direction === 'left' ? right : activeSide === 0 ? left : right;
     const destination = direction === 'right' ? right : direction === 'left' ? left : source;
     if (!source.folder || !destination.folder) return;
-    const marked = source.items.filter((item) => markedIdsFor(source).has(item.id));
-    const focused = source.items.find((item) => item.id === source.selectedId && item.type !== 'separator');
     return {
       sourceId: source.folder.id,
       destinationId: destination.folder.id,
-      ids: marked.length ? marked.map((item) => item.id) : focused ? [focused.id] : [],
+      ids: selectedIds(source),
       direction: direction === 'up' || direction === 'down' ? direction : undefined,
       afterId: destination.selectedId
     };
@@ -92,24 +202,25 @@
     const request = moveRequest(direction);
     return {
       title,
-      disabled: loading || moving || !request || !canMoveItems(request),
+      symbol: { up: '↑', down: '↓', left: '←', right: '→' }[direction],
+      disabled: commandsDisabled || !request || !canMoveItems(request),
       action: () => moveSelected(direction)
     };
   }
 
   async function moveSelected(direction: MoveDirection): Promise<void> {
     const request = moveRequest(direction);
-    if (moving || loading || !request || !canMoveItems(request)) return;
+    if (mutating || loading || !request || !canMoveItems(request)) return;
     const sourceSide = direction === 'right' ? 0 : direction === 'left' ? 1 : activeSide;
     const destinationSide = direction === 'right' ? 1 : direction === 'left' ? 0 : sourceSide;
     await performMove(sourceSide, destinationSide, request);
   }
 
   async function performMove(sourceSide: Side, destinationSide: Side, request: MoveRequest, marked?: Set<string>): Promise<void> {
-    if (moving || loading || !canMoveItems(request)) return;
+    if (mutating || loading || !canMoveItems(request)) return;
     const sourcePane = sourceSide === 0 ? left : right;
     const markedToTransfer = marked ?? new Set(request.ids.filter((id) => markedIdsFor(sourcePane).has(id)));
-    moving = true;
+    mutating = true;
     try {
       const movedIds = (await onMoveItems(request)).filter((id) => markedToTransfer.has(id));
       // Wait for the final tree to reach the lists before restoring moved marks.
@@ -129,7 +240,7 @@
         focusedId: destinationState?.focusedId ?? ''
       });
     } finally {
-      moving = false;
+      mutating = false;
     }
   }
 
@@ -144,7 +255,7 @@
   }
 
   $effect(() => {
-    if (itemDrag && (loading || moving || (itemDrag.side === 0 ? left : right).folder?.id !== itemDrag.folderId)) cancelItemDrag();
+    if (itemDrag && (loading || mutating || (itemDrag.side === 0 ? left : right).folder?.id !== itemDrag.folderId)) cancelItemDrag();
   });
 
   function dragDestination(): { pane: PaneView; list: HTMLElement } | undefined {
@@ -157,7 +268,7 @@
 
   function updateDropTarget(): void {
     dropTarget = undefined;
-    if (!itemDrag || loading || moving) return;
+    if (!itemDrag || loading || mutating) return;
     const destination = dragDestination();
     if (!destination?.pane.folder) return;
     const position = lists[destination.pane.side]?.insertionAt(dragPoint.y);
@@ -187,7 +298,7 @@
 
   function beginItemDrag(event: PointerEvent): void {
     suppressClick = false;
-    if (!event.isPrimary || event.button !== 0 || event.pointerType !== 'mouse' || loading || moving || drag) return;
+    if (!event.isPrimary || event.button !== 0 || event.pointerType !== 'mouse' || loading || mutating || drag) return;
     const side = paneSideFor(event.target);
     if (side === undefined || !(event.target instanceof Element) || event.target.closest('input')) return;
     const row = event.target.closest<HTMLElement>('[data-bookmark-row]');
@@ -265,6 +376,7 @@
   }
 
   function focusActivePane(reveal = true): void {
+    if (creation) return;
     lists[activeSide]?.focusSelected(reveal);
   }
 
@@ -328,10 +440,11 @@
     async function restoreFocus(): Promise<void> {
       await tick();
       // Browser tabs and native permission dialogs keep their own focus.
-      if (mounted && document.hasFocus() && paneSideFor(document.activeElement) === undefined) focusActivePane();
+      if (mounted && !creation && document.hasFocus() && paneSideFor(document.activeElement) === undefined) focusActivePane();
     }
 
     function onDocumentMousedown(event: MouseEvent): void {
+      if (creation) return;
       if (event.button !== 0) return;
       const side = paneSideFor(event.target);
       if (side !== undefined) activeSide = side;
@@ -349,6 +462,7 @@
     }
 
     function onDocumentKeydown(event: KeyboardEvent): void {
+      if (creation) return;
       if (event.ctrlKey || event.altKey || event.metaKey) return;
       let side: Side;
       switch (event.key) {
@@ -432,7 +546,7 @@
         markedIds={markedIdsFor(pane)}
         parentFolderId={pane.folder?.parentId}
         {loading}
-        active={activeSide === pane.side}
+        active={activeSide === pane.side && !creation}
         dropMarkerTop={dropTarget?.side === pane.side ? dropTarget.top : undefined}
         draggedIds={itemDrag?.side === pane.side ? itemDrag.ids : undefined}
         onActivate={() => (activeSide = pane.side)}
@@ -479,7 +593,11 @@
   </div>
 {/if}
 
-<CommandBar buttons={commands} />
+<CommandBar buttons={commands} label="Переместить:" />
+
+{#if creation}
+  <CreateBookmarkDialog kind={creation.kind} onCreate={createItem} onClose={closeCreation} />
+{/if}
 
 <style>
   .folder-path {

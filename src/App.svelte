@@ -3,7 +3,7 @@
   import BookmarkPanels from './components/BookmarkPanels.svelte';
   import { PARENT_FOLDER_ITEM_ID } from './components/BookmarkList.svelte';
   import { ICON_ORIGINS } from './icons/protocol';
-  import { planMoves, type MoveRequest } from './bookmarks/move';
+  import { planMoves, type CreateRequest, type ItemRequest, type MoveRequest } from './bookmarks/move';
 
   type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
   type Side = 0 | 1;
@@ -18,9 +18,9 @@
     { folderId: '', selectedId: '' }
   ]);
   let loading = $state(true);
-  let moving = $state(false);
-  let moveFocusPositions: FocusPosition[] | undefined;
-  let refreshAfterMove: () => Promise<void> = async () => {};
+  let mutating = $state(false);
+  let mutationFocusPositions: FocusPosition[] | undefined;
+  let refreshAfterMutation: () => Promise<void> = async () => {};
   let error = $state('');
   let iconAccessAllowed = $state<boolean | null>(null);
   let requestingIconAccess = $state(false);
@@ -86,7 +86,7 @@
     error = '';
     try {
       const tree = await browser.bookmarks.getTree();
-      if (!isActive() || moving) return;
+      if (!isActive() || mutating) return;
       roots = tree;
       const index = new Map<string, BookmarkNode>();
       const pending = [...roots];
@@ -98,8 +98,8 @@
       }
       nodesById = index;
       rootId = roots[0]?.id ?? '';
-      const focusPositions = moveFocusPositions;
-      moveFocusPositions = undefined;
+      const focusPositions = mutationFocusPositions;
+      mutationFocusPositions = undefined;
       for (const side of [0, 1] as const) {
         const pane = panes[side];
         if (!findNode(pane.folderId)) pane.folderId = rootId;
@@ -138,16 +138,21 @@
     }
   }
 
-  function canMoveItems(request: MoveRequest): boolean {
-    if (loading || moving || !request.ids.length || request.sourceId === rootId || request.destinationId === rootId) return false;
+  function canRemoveItems(request: ItemRequest): boolean {
+    if (loading || mutating || !request.ids.length || request.sourceId === rootId) return false;
     const source = findNode(request.sourceId);
-    const destination = findNode(request.destinationId);
-    if (!source?.children || !destination?.children || source.unmodifiable || destination.unmodifiable) return false;
-    const ids = new Set(request.ids);
-    for (const id of ids) {
+    if (!source?.children || source.unmodifiable) return false;
+    return request.ids.every((id) => {
       const item = findNode(id);
-      if (!item || item.parentId !== request.sourceId || item.unmodifiable || item.type === 'separator') return false;
-    }
+      return item && item.parentId === request.sourceId && !item.unmodifiable && item.type !== 'separator';
+    });
+  }
+
+  function canMoveItems(request: MoveRequest): boolean {
+    if (!canRemoveItems(request) || request.destinationId === rootId) return false;
+    const destination = findNode(request.destinationId);
+    if (!destination?.children || destination.unmodifiable) return false;
+    const ids = new Set(request.ids);
     let folder = findNode(request.destinationId);
     while (folder) {
       if (ids.has(folder.id)) return false;
@@ -156,13 +161,78 @@
     return true;
   }
 
-  async function moveItems(request: MoveRequest): Promise<string[]> {
-    if (!canMoveItems(request)) return [];
-    const focusPositions = panes.map((pane) => ({
+  function focusPositions(): FocusPosition[] {
+    return panes.map((pane) => ({
       ...pane,
       index: findNode(pane.folderId)?.children?.findIndex((item) => item.id === pane.selectedId) ?? -1
     }));
-    moving = true;
+  }
+
+  function canCreateItem(parentId: string): boolean {
+    const folder = findNode(parentId);
+    return !loading && !mutating && parentId !== rootId && !!folder?.children && !folder.unmodifiable;
+  }
+
+  async function createItem(request: CreateRequest): Promise<string | undefined> {
+    if (!canCreateItem(request.parentId) || !request.title.trim() || (request.type === 'bookmark' && !request.url?.trim())) return;
+    mutating = true;
+    error = '';
+    let createdId: string | undefined;
+    let failed = false;
+    try {
+      const children = await browser.bookmarks.getChildren(request.parentId);
+      const index = children.findIndex((item) => item.id === request.afterId) + 1;
+      const created = await browser.bookmarks.create({
+        parentId: request.parentId,
+        index,
+        type: request.type,
+        title: request.title.trim(),
+        ...(request.type === 'bookmark' ? { url: request.url!.trim() } : {})
+      });
+      createdId = created.id;
+    } catch (cause) {
+      failed = true;
+      console.error('Failed to create a bookmark item', cause);
+    } finally {
+      mutating = false;
+      await refreshAfterMutation();
+      if (failed) error = 'Не удалось создать элемент.';
+    }
+    return createdId;
+  }
+
+  async function removeItems(request: ItemRequest): Promise<void> {
+    if (!canRemoveItems(request)) return;
+    const positions = focusPositions();
+    mutating = true;
+    error = '';
+    let failed = false;
+    try {
+      const items = await browser.bookmarks.getChildren(request.sourceId);
+      const selected = items.filter((item) => request.ids.includes(item.id));
+      if (selected.length !== new Set(request.ids).size || selected.some((item) => item.unmodifiable || item.type === 'separator')) {
+        throw new Error('Selected bookmarks cannot be removed');
+      }
+      for (const item of selected) {
+        if (item.type === 'folder' || item.children) await browser.bookmarks.removeTree(item.id);
+        else await browser.bookmarks.remove(item.id);
+      }
+    } catch (cause) {
+      failed = true;
+      console.error('Failed to remove selected bookmarks', cause);
+    } finally {
+      mutating = false;
+      mutationFocusPositions = positions;
+      await refreshAfterMutation();
+      mutationFocusPositions = undefined;
+      if (failed) error = 'Не удалось удалить выбранные элементы.';
+    }
+  }
+
+  async function moveItems(request: MoveRequest): Promise<string[]> {
+    if (!canMoveItems(request)) return [];
+    const positions = focusPositions();
+    mutating = true;
     error = '';
     const completed: string[] = [];
     let result: string[] = [];
@@ -184,10 +254,10 @@
       result = completed;
       console.error('Failed to move selected bookmarks', cause);
     } finally {
-      moving = false;
-      if (request.sourceId !== request.destinationId) moveFocusPositions = focusPositions;
-      await refreshAfterMove();
-      moveFocusPositions = undefined;
+      mutating = false;
+      if (request.sourceId !== request.destinationId) mutationFocusPositions = positions;
+      await refreshAfterMutation();
+      mutationFocusPositions = undefined;
       if (failed) error = 'Не удалось переместить выбранные элементы.';
     }
     return result;
@@ -201,14 +271,14 @@
 
     function refreshTree(): Promise<void> {
       timer = undefined;
-      if (!active || moving) return Promise.resolve();
+      if (!active || mutating) return Promise.resolve();
       if (refreshing) return refreshing;
       if (!pending) return Promise.resolve();
       refreshing = (async () => {
         try {
           // An event arriving during getTree requests another pass. Reads never
           // overlap, so an older snapshot cannot overwrite a newer one.
-          while (active && pending && !moving) {
+          while (active && pending && !mutating) {
             pending = false;
             await loadTree(() => active);
           }
@@ -219,7 +289,7 @@
       return refreshing;
     }
 
-    refreshAfterMove = async () => {
+    refreshAfterMutation = async () => {
       pending = true;
       if (timer !== undefined) clearTimeout(timer);
       timer = undefined;
@@ -230,7 +300,7 @@
     function onBookmarksChanged(): void {
       pending = true;
       // Batch a burst of events, including changes made in this manager.
-      if (!moving && !refreshing && timer === undefined) timer = setTimeout(() => void refreshTree(), 50);
+      if (!mutating && !refreshing && timer === undefined) timer = setTimeout(() => void refreshTree(), 50);
     }
 
     const events = [
@@ -304,5 +374,9 @@
     onOpenBookmark={openBookmark}
     {canMoveItems}
     onMoveItems={moveItems}
+    {canRemoveItems}
+    onRemoveItems={removeItems}
+    {canCreateItem}
+    onCreateItem={createItem}
   />
 </main>

@@ -101,6 +101,8 @@ def run():
             shutil.copy(ROOT / 'tests/site-icons.browser.js', extension / 'site-icons.browser.js')
             shutil.copy(ROOT / 'tests/bookmarks.browser.js', extension / 'bookmarks.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-commands.browser.js', extension / 'bookmark-commands.browser.js')
+            shutil.copy(ROOT / 'tests/bookmark-delete.browser.js', extension / 'bookmark-delete.browser.js')
+            shutil.copy(ROOT / 'tests/bookmark-create.browser.js', extension / 'bookmark-create.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-pointer.browser.js', extension / 'bookmark-pointer.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-drag.browser.js', extension / 'bookmark-drag.browser.js')
             manifest = json.loads((extension / 'manifest.json').read_text())
@@ -361,6 +363,50 @@ def run():
                             pointer_script('await window.pointerTests.cleanup(); delete window.pointerTests;')
                         pointer_script("window.dragTests = await import('./bookmark-drag.browser.js'); await window.dragTests.prepare();")
                         try:
+                            pointer_script('''
+                                window.creationTestFocus = document.activeElement;
+                                document.querySelector('[aria-label="Команды"] button[aria-label="Папку"]').click();
+                                const deadline = Date.now() + 10000;
+                                while (Date.now() < deadline) {
+                                    const dialog = document.querySelector('[data-bookmark-create-dialog]');
+                                    if (dialog?.open && document.activeElement === dialog.querySelector('input[name="title"]')) return;
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('The native creation dialog did not receive input focus');
+                            ''')
+                            command('WebDriver:PerformActions', {'actions': [{
+                                'type': 'key', 'id': 'creation-keyboard', 'actions': [
+                                    {'type': 'keyDown', 'value': '\ue014'},
+                                    {'type': 'keyUp', 'value': '\ue014'},
+                                    {'type': 'keyDown', 'value': '\ue004'},
+                                    {'type': 'keyUp', 'value': '\ue004'}
+                                ]
+                            }]})
+                            pointer_script('''
+                                const dialog = document.querySelector('[data-bookmark-create-dialog]');
+                                if (!dialog?.open || !dialog.contains(document.activeElement) || document.activeElement.textContent.trim() !== 'Отмена') {
+                                    throw new Error('Native keyboard navigation escaped the creation dialog');
+                                }
+                            ''')
+                            result['results'].append('Native arrow and Tab keys navigate the creation modal without switching bookmark panels')
+                            command('WebDriver:PerformActions', {'actions': [{
+                                'type': 'key', 'id': 'creation-keyboard', 'actions': [
+                                    {'type': 'keyDown', 'value': '\ue00c'},
+                                    {'type': 'keyUp', 'value': '\ue00c'}
+                                ]
+                            }]})
+                            pointer_script('''
+                                const deadline = Date.now() + 10000;
+                                while (Date.now() < deadline) {
+                                    if (!document.querySelector('[data-bookmark-create-dialog]') && document.activeElement === window.creationTestFocus) {
+                                        delete window.creationTestFocus;
+                                        return;
+                                    }
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('Escape did not close the creation modal and restore pane focus');
+                            ''')
+                            result['results'].append('Native Escape cancels the creation dialog and restores the previous focused pane row')
                             for case in ['reorder', 'right', 'left', 'empty', 'cycle', 'escape', 'outside', 'parent', 'same-folder', 'scroll']:
                                 points = pointer_script('return await window.dragTests.startCase(arguments[0]);', [case])
                                 pointer_actions([

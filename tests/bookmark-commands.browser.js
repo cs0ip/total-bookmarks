@@ -4,7 +4,7 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     if (!condition) throw new Error(message);
     results.push(message);
   };
-  const command = (title) => document.querySelector(`[aria-label="Команды"] button[title="${title}"]`);
+  const command = (title) => document.querySelector(`[aria-label="Команды"] button[aria-label="${title}"]`);
   const order = (pane) => [...pane.querySelectorAll('button[aria-pressed]')]
     .filter((button) => button !== parentRow(pane)).map((button) => button.querySelector('.font-semibold').textContent.trim());
   const matches = (pane, titles) => JSON.stringify(order(pane)) === JSON.stringify(titles);
@@ -39,8 +39,9 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     open(right, target.title);
     await until(() => row(left, 'Command F') && row(right, 'Target 3'));
     const bar = document.querySelector('[aria-label="Команды"]');
-    assert([...bar.querySelectorAll('button')].map((button) => button.title).join(',') === 'Переместить вверх,Переместить вниз,Переместить вправо,Переместить влево' && bar.getBoundingClientRect().top >= Math.max(left.getBoundingClientRect().bottom, right.getBoundingClientRect().bottom), 'The four configured movement commands appear in order below both panels');
-    assert([...bar.querySelectorAll('button')].every((button) => button.disabled), 'Movement commands are disabled when neither pane has marks or a movable focused row');
+    assert([...bar.querySelectorAll('button')].map((button) => button.getAttribute('aria-label')).join(',') === 'Переместить вверх,Переместить вниз,Переместить влево,Переместить вправо,Всё,Ничего,Закладку,Папку,Удалить' && bar.getBoundingClientRect().top >= Math.max(left.getBoundingClientRect().bottom, right.getBoundingClientRect().bottom), 'Movement, selection, creation and delete commands appear in the configured order below both panels');
+    assert([...bar.querySelectorAll('button')].slice(0, 4).map((button) => button.textContent.trim()).join('') === '↑↓←→' && bar.textContent.includes('Переместить:') && bar.textContent.includes('Выделить:') && bar.textContent.split('|').length === 4 && command('Всё').previousElementSibling.textContent === 'Выделить:' && command('Закладку').previousElementSibling.textContent === 'Создать:' && command('Удалить').previousElementSibling.textContent === '|', 'Command groups have compact captions, arrow buttons, separators and descriptive accessible labels');
+    assert([...bar.querySelectorAll('button')].filter((button) => !['Всё', 'Закладку', 'Папку'].includes(button.getAttribute('aria-label'))).every((button) => button.disabled) && !command('Всё').disabled && !command('Закладку').disabled && !command('Папку').disabled, 'Selection and creation remain available when both panes have unmarked items and their parent entries focused');
     await focus(left, 'Command C');
     assert(!command('Переместить вверх').disabled && !command('Переместить вниз').disabled && !command('Переместить вправо').disabled, 'A focused real row enables source movement commands without checkbox marks');
     clickCommand('Переместить вверх');
@@ -155,7 +156,13 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     await until(() => matches(left, ['Command C']) && !row(right, 'Command C') && !command('Переместить влево').disabled);
     assert(document.activeElement === row(right, 'Command D') && selectedRow(left) === parentRow(left), 'Move-left also keeps active source focus at the removed row position without changing destination selection');
 
-    for (const pane of [left, right]) parentRow(pane).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    const { runBookmarkDeletionTests } = await import('./bookmark-delete.browser.js');
+    results.push(...await runBookmarkDeletionTests({ fixtures, left, right, row, parentRow, checkbox, selectedRow, open, until, clickCheckbox, command, clickCommand, focus, mark }));
+    const { runBookmarkCreationTests } = await import('./bookmark-create.browser.js');
+    results.push(...await runBookmarkCreationTests({ fixtures, left, right, row, parentRow, checkbox, selectedRow, open, until, command, clickCommand, focus, mark }));
+    for (const pane of [left, right]) {
+      if (pane.querySelector('h2').textContent !== fixtures.title) parentRow(pane).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    }
     await until(() => left.querySelector('h2').textContent === fixtures.title && right.querySelector('h2').textContent === fixtures.title);
     for (const folder of [source, target, empty]) await browser.bookmarks.removeTree(folder.id);
     return results;
