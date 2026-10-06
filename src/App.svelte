@@ -16,7 +16,6 @@
     { folderId: '', selectedId: '' }
   ]);
   let loading = $state(true);
-  let busy = $state(false);
   let error = $state('');
   let iconAccessAllowed = $state<boolean | null>(null);
   let requestingIconAccess = $state(false);
@@ -49,10 +48,6 @@
     return nodesById.get(id) ?? null;
   }
 
-  function otherSide(side: Side): Side {
-    return side === 0 ? 1 : 0;
-  }
-
   function currentFolder(side: Side): BookmarkNode | null {
     return findNode(panes[side].folderId);
   }
@@ -61,8 +56,14 @@
     return currentFolder(side)?.children ?? [];
   }
 
-  function selectedItem(side: Side): BookmarkNode | null {
-    return findNode(panes[side].selectedId);
+  function folderPath(side: Side): string {
+    const names: string[] = [];
+    let folder = currentFolder(side);
+    while (folder && folder.id !== rootId) {
+      names.push(folder.title || 'Без названия');
+      folder = findNode(folder.parentId);
+    }
+    return names.reverse().join(' / ');
   }
 
   function paneView(side: Side) {
@@ -71,7 +72,7 @@
       folder: currentFolder(side),
       items: itemsIn(side),
       selectedId: panes[side].selectedId,
-      selected: selectedItem(side)
+      folderPath: folderPath(side)
     };
   }
 
@@ -111,38 +112,6 @@
     if (!folder?.children) return;
     panes[side].folderId = id;
     panes[side].selectedId = '';
-  }
-
-  function canMove(from: Side): boolean {
-    const source = selectedItem(from);
-    const destination = currentFolder(otherSide(from));
-    if (!source || !destination || busy || loading) return false;
-    if (source.unmodifiable || source.parentId === rootId) return false;
-    if (destination.id === rootId || destination.id === source.parentId) return false;
-
-    let folder: BookmarkNode | null = destination;
-    while (folder) {
-      if (folder.id === source.id) return false;
-      folder = findNode(folder.parentId);
-    }
-    return true;
-  }
-
-  async function moveSelected(from: Side): Promise<void> {
-    if (!canMove(from)) return;
-    const sourceId = panes[from].selectedId;
-    const destinationId = panes[otherSide(from)].folderId;
-    busy = true;
-    error = '';
-    try {
-      await browser.bookmarks.move(sourceId, { parentId: destinationId });
-      panes[from].selectedId = '';
-    } catch (cause) {
-      error = 'Не удалось переместить элемент.';
-      console.error('Failed to move the selected bookmark item', cause);
-    } finally {
-      busy = false;
-    }
   }
 
   async function openBookmark(url: string): Promise<void> {
@@ -248,11 +217,8 @@
     left={paneView(0)}
     right={paneView(1)}
     loading={loading && roots.length === 0}
-    canMoveRight={canMove(0)}
-    canMoveLeft={canMove(1)}
     onSelect={(side, id) => (panes[side].selectedId = id)}
     onOpenFolder={navigate}
     onOpenBookmark={openBookmark}
-    onMove={moveSelected}
   />
 </main>

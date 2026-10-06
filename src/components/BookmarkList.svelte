@@ -3,31 +3,131 @@
 </script>
 
 <script lang="ts">
+  import { onMount } from 'svelte';
   import Bookmark from './Bookmark.svelte';
-  import Favicons from './Favicons.svelte';
 
   type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
   type Props = {
     items: BookmarkNode[];
     selectedId: string;
+    markedIds: Set<string>;
     parentFolderId?: string;
     loading?: boolean;
+    active?: boolean;
+    onActivate: () => void;
     onSelect: (id: string) => void;
+    onMarkedIdsChange: (ids: Set<string>) => void;
     onOpenFolder: (id: string) => void;
     onOpenBookmark: (url: string) => void | Promise<void>;
   };
 
-  let { items, selectedId, parentFolderId, loading = false, onSelect, onOpenFolder, onOpenBookmark }: Props = $props();
+  let { items, selectedId, markedIds, parentFolderId, loading = false, active = false, onActivate, onSelect, onMarkedIdsChange, onOpenFolder, onOpenBookmark }: Props = $props();
+  let list: HTMLDivElement;
   const rows: BookmarkNode[] = $derived(parentFolderId ? [
     { id: PARENT_FOLDER_ITEM_ID, title: '..', type: 'folder', children: [] },
     ...items
   ] : items);
+  const activeSelectedId = $derived(rows.some((item) => item.id === selectedId) ? selectedId : rows[0]?.id ?? '');
+
+  onMount(() => {
+    list.addEventListener('keydown', onListKeydown);
+    return () => list.removeEventListener('keydown', onListKeydown);
+  });
+
+  $effect(() => {
+    if (!loading && selectedId !== activeSelectedId) onSelect(activeSelectedId);
+  });
+
+  $effect(() => {
+    if (loading) return;
+    const available = new Set(items.filter((item) => item.type !== 'separator').map((item) => item.id));
+    const retained = new Set([...markedIds].filter((id) => available.has(id)));
+    if (retained.size !== markedIds.size) onMarkedIdsChange(retained);
+  });
+
+  function markItem(id: string, checked: boolean): void {
+    const next = new Set(markedIds);
+    if (checked) next.add(id);
+    else next.delete(id);
+    onMarkedIdsChange(next);
+  }
+
+  function toggleRange(from: number, to: number): void {
+    const next = new Set(markedIds);
+    let changed = false;
+    for (let index = Math.min(from, to); index <= Math.max(from, to); index++) {
+      const item = rows[index];
+      if (item.id === PARENT_FOLDER_ITEM_ID || item.type === 'separator') continue;
+      if (next.has(item.id)) next.delete(item.id);
+      else next.add(item.id);
+      changed = true;
+    }
+    if (changed) onMarkedIdsChange(next);
+  }
+
+  $effect(() => {
+    if (active) focusSelected();
+  });
+
+  export function focusSelected(): void {
+    const selectedIndex = rows.findIndex((item) => item.id === activeSelectedId);
+    const selected = !loading && selectedIndex >= 0 ? list.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')[selectedIndex] : list;
+    const target = selected ?? list;
+    if (document.activeElement !== target) target.focus({ preventScroll: true });
+    if (target !== list) keepRowVisible(target);
+  }
+
+  function keepRowVisible(target: HTMLElement): void {
+    const viewport = list.getBoundingClientRect();
+    const padding = getComputedStyle(list);
+    const top = viewport.top + list.clientTop + parseFloat(padding.paddingTop);
+    const bottom = viewport.top + list.clientTop + list.clientHeight - parseFloat(padding.paddingBottom);
+    const row = target.getBoundingClientRect();
+    // Move only this list, and only far enough to reveal the focused row.
+    if (row.top < top) list.scrollTop += row.top - top;
+    else if (row.bottom > bottom) list.scrollTop += row.bottom - bottom;
+  }
+
+  function onItemFocus(item: BookmarkNode, target: HTMLButtonElement): void {
+    onSelect(item.id);
+    keepRowVisible(target);
+  }
+
+  function onListKeydown(event: KeyboardEvent): void {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key === ' ') {
+      event.preventDefault();
+      if (loading || event.repeat) return;
+      const item = rows.find((row) => row.id === activeSelectedId);
+      if (item && item.id !== PARENT_FOLDER_ITEM_ID && item.type !== 'separator') {
+        markItem(item.id, !markedIds.has(item.id));
+      }
+      return;
+    }
+    if (event.key === 'Backspace') {
+      event.preventDefault();
+      if (!loading && !event.repeat && parentFolderId) onOpenFolder(parentFolderId);
+      return;
+    }
+    if (!['ArrowUp', 'ArrowDown', 'Insert', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    if (loading || rows.length === 0) return;
+    const index = rows.findIndex((item) => item.id === activeSelectedId);
+    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 :
+      Math.max(0, Math.min(rows.length - 1, index + (event.key === 'ArrowUp' ? -1 : 1)));
+    if (event.key === 'Insert' || event.shiftKey) {
+      toggleRange(index, event.shiftKey && (event.key === 'Home' || event.key === 'End') ? nextIndex : index);
+    }
+    if (nextIndex === index) return;
+    onSelect(rows[nextIndex].id);
+  }
 
   function itemTitle(item: BookmarkNode): string {
     return item.title || (item.type === 'separator' ? 'Разделитель' : 'Без названия');
   }
 
   function openItem(item: BookmarkNode): void {
+    if (item.type === 'separator') return;
     if (item.id === PARENT_FOLDER_ITEM_ID) {
       if (parentFolderId) onOpenFolder(parentFolderId);
     }
@@ -39,44 +139,52 @@
     if (event.key !== 'Enter') return;
     // Suppress the button's native click so Enter opens only the selected item.
     event.preventDefault();
-    if (!event.repeat && selectedId === item.id) openItem(item);
+    if (!event.repeat && activeSelectedId === item.id) openItem(item);
   }
 
 </script>
 
-<div class="min-h-0 flex-1 overflow-auto p-[6px]">
+<div bind:this={list} role="group" aria-label="Список закладок" tabindex="-1" onfocusin={onActivate} class="min-h-0 flex-1 overflow-auto p-[6px]">
   {#if loading}
     <p class="m-0 px-[14px] py-[30px] text-center text-[#758097]">Загрузка…</p>
   {:else if rows.length === 0}
     <p class="m-0 px-[14px] py-[30px] text-center text-[#758097]">Папка пуста</p>
   {:else}
     {#each rows as item (item.id)}
-      <div class={`flex min-w-0 items-center gap-1 rounded-lg ${selectedId === item.id ? 'bg-[#ebe6fb]' : 'hover:bg-[#f5f6fb]'}`}>
-        <button
-          class="flex min-w-0 flex-1 cursor-pointer items-center gap-[10px] border-0 bg-transparent p-[9px] text-left text-inherit focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5f44b4]"
-          type="button"
-          aria-pressed={selectedId === item.id}
-          aria-label={item.id === PARENT_FOLDER_ITEM_ID ? 'На уровень выше' : undefined}
-          onclick={() => onSelect(item.id)}
-          ondblclick={() => openItem(item)}
-          onkeydown={(event) => onItemKeydown(event, item)}
-        >
-          {#if item.url}
-            <Bookmark bookmark={item} />
-          {:else}
+      <div class={`flex min-w-0 items-center gap-1 rounded-lg focus-within:outline-2 focus-within:outline-offset-0 focus-within:outline-[#5f44b4] ${activeSelectedId === item.id ? 'bg-[#ebe6fb]' : markedIds.has(item.id) ? 'bg-[#f1f6fd]' : 'hover:bg-[#f5f6fb]'}`}>
+        {#if item.id !== PARENT_FOLDER_ITEM_ID && item.type !== 'separator'}
+          <Bookmark
+            bookmark={item}
+            checked={markedIds.has(item.id)}
+            focused={activeSelectedId === item.id}
+            onCheckedChange={(checked) => markItem(item.id, checked)}
+            onSelect={() => onSelect(item.id)}
+            onOpen={() => openItem(item)}
+            onFocus={(target) => onItemFocus(item, target)}
+            onKeydown={(event) => onItemKeydown(event, item)}
+          />
+        {:else}
+          <button
+            class="flex min-w-0 flex-1 cursor-pointer items-center gap-[10px] border-0 bg-transparent p-[9px] text-left text-inherit focus:outline-none"
+            type="button"
+            aria-pressed={activeSelectedId === item.id}
+            aria-label={item.id === PARENT_FOLDER_ITEM_ID ? 'На уровень выше' : undefined}
+            onclick={() => onSelect(item.id)}
+            onfocus={(event) => onItemFocus(item, event.currentTarget)}
+            ondblclick={() => openItem(item)}
+            onkeydown={(event) => onItemKeydown(event, item)}
+          >
             {#if item.id === PARENT_FOLDER_ITEM_ID}
               <span class="flex size-[22px] shrink-0 items-center justify-center text-[19px] text-[#34405a]" aria-hidden="true">↑</span>
-            {:else if item.type === 'separator'}
-              <span class="w-[22px] shrink-0 text-center text-[18px] text-[#738098]" aria-hidden="true">—</span>
             {:else}
-              <Favicons folder />
+              <span class="w-[22px] shrink-0 text-center text-[18px] text-[#738098]" aria-hidden="true">—</span>
             {/if}
             <span class="flex min-w-0 flex-col">
               <span class="truncate font-semibold">{itemTitle(item)}</span>
               <span class="text-xs text-[#738098]">{item.id === PARENT_FOLDER_ITEM_ID ? 'Родительская папка' : item.type === 'separator' ? 'Разделитель' : 'Папка'}</span>
             </span>
-          {/if}
-        </button>
+          </button>
+        {/if}
       </div>
     {/each}
   {/if}

@@ -164,7 +164,17 @@ export async function runIconTests(origin) {
     });
     try {
       const index = await (await fetch(browser.runtime.getURL('index.html'))).text();
+      const page = new DOMParser().parseFromString(index, 'text/html');
+      await Promise.all([...page.querySelectorAll('link[rel="stylesheet"]')].map((source) => new Promise((resolve, reject) => {
+        const stylesheet = document.createElement('link');
+        stylesheet.rel = 'stylesheet';
+        stylesheet.href = new URL(source.getAttribute('href'), browser.runtime.getURL('index.html')).href;
+        stylesheet.onload = resolve;
+        stylesheet.onerror = () => reject(new Error('Failed to load the production UI stylesheet'));
+        document.head.append(stylesheet);
+      })));
       const script = index.match(/<script[^>]*src="([^"]+)"/)[1];
+      document.body.className = page.body.className;
       document.body.innerHTML = '<div id="app"></div>';
       await import(script);
       const toolbarRow = await until(() => [...document.querySelectorAll('button[aria-pressed]')].find((button) =>

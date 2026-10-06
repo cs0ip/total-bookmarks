@@ -239,6 +239,76 @@ def run():
                         if 'error' in retried:
                             raise RuntimeError(json.dumps(retried, indent=2))
                         result['results'].extend(retried['results'])
+                        command('WebDriver:SetWindowRect', {'width': 1200, 'height': 900})
+
+                        def panel_layout():
+                            return command('WebDriver:ExecuteScript', {
+                                'script': '''
+                                    const left = document.querySelector('[data-bookmark-pane="0"]');
+                                    const right = document.querySelector('[data-bookmark-pane="1"]');
+                                    const divider = document.querySelector('[role="separator"]');
+                                    const bounds = divider.getBoundingClientRect();
+                                    return {
+                                        left: left.getBoundingClientRect().width,
+                                        right: right.getBoundingClientRect().width,
+                                        x: Math.round(bounds.left + bounds.width / 2),
+                                        y: Math.round(bounds.top + 80),
+                                        visible: getComputedStyle(divider).display !== 'none',
+                                        dragging: divider.parentElement.classList.contains('resizing'),
+                                        focusPreserved: document.activeElement === window.splitterTestFocus
+                                    };
+                                ''', 'args': []
+                            })['value']
+
+                        def pointer_actions(actions):
+                            command('WebDriver:PerformActions', {'actions': [{
+                                'type': 'pointer', 'id': 'splitter-mouse',
+                                'parameters': {'pointerType': 'mouse'}, 'actions': actions
+                            }]})
+
+                        command('WebDriver:ExecuteScript', {
+                            'script': 'window.splitterTestFocus = document.activeElement;', 'args': []
+                        })
+                        initial = panel_layout()
+                        pointer_actions([
+                            {'type': 'pointerMove', 'x': initial['x'], 'y': initial['y'], 'duration': 0},
+                            {'type': 'pointerDown', 'button': 0},
+                            {'type': 'pointerMove', 'x': initial['x'] + 140, 'y': initial['y'], 'duration': 150}
+                        ])
+                        expanded = panel_layout()
+                        if not (expanded['left'] > initial['left'] + 100 and expanded['right'] < initial['right'] - 100 and expanded['dragging'] and expanded['focusPreserved']):
+                            raise RuntimeError(f'Dragging the divider did not resize both panels while preserving focus: {expanded}')
+                        result['results'].append('Native divider dragging resizes both panels and preserves row focus')
+                        pointer_actions([
+                            {'type': 'pointerMove', 'x': 0, 'y': 50, 'duration': 150},
+                            {'type': 'pointerUp', 'button': 0}
+                        ])
+                        limited = panel_layout()
+                        share = limited['left'] / (limited['left'] + limited['right'])
+                        if not (abs(share - 0.2) < 0.01 and not limited['dragging'] and limited['focusPreserved']):
+                            raise RuntimeError(f'Divider capture or minimum pane width failed outside its bounds: {limited}')
+                        result['results'].append('Dragging beyond the divider keeps panels usable and releasing outside ends resizing')
+                        pointer_actions([
+                            {'type': 'pointerMove', 'x': limited['x'], 'y': limited['y'], 'duration': 0},
+                            {'type': 'pointerDown', 'button': 0},
+                            {'type': 'pointerMove', 'x': initial['x'], 'y': initial['y'], 'duration': 150},
+                            {'type': 'pointerUp', 'button': 0}
+                        ])
+                        restored = panel_layout()
+                        if not (abs(restored['left'] - initial['left']) < 3 and abs(restored['right'] - initial['right']) < 3 and restored['focusPreserved']):
+                            raise RuntimeError(f'The divider did not resize back in the opposite direction: {restored}')
+                        result['results'].append('The divider can resize back in the opposite direction without losing focus')
+                        command('WebDriver:ReleaseActions')
+                        command('WebDriver:SetWindowRect', {'width': 600, 'height': 900})
+                        narrow = panel_layout()
+                        command('WebDriver:SetWindowRect', {'width': 1200, 'height': 900})
+                        wide = panel_layout()
+                        if not (not narrow['visible'] and abs(narrow['left'] - narrow['right']) < 2 and wide['visible'] and abs(wide['left'] - restored['left']) < 3):
+                            raise RuntimeError('Responsive layout did not hide the divider on a narrow window or restore pane widths')
+                        result['results'].append('Narrow windows hide the divider and wide windows restore pane proportions')
+                        command('WebDriver:ExecuteScript', {
+                            'script': 'delete window.splitterTestFocus;', 'args': []
+                        })
                         bookmarks = command('WebDriver:ExecuteAsyncScript', {
                             'script': '''
                                 const done = arguments[arguments.length - 1];
