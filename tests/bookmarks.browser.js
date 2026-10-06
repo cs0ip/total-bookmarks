@@ -469,6 +469,9 @@ export async function runBookmarkTests() {
     await until(() => left.querySelector('h2').textContent === 'Renamed folder' && right.querySelector('h2').textContent === 'Renamed folder');
     await browser.bookmarks.removeTree(history.id);
 
+    const { runBookmarkCommandTests } = await import('./bookmark-commands.browser.js');
+    results.push(...await runBookmarkCommandTests({ fixtures: { ...fixtures, title: 'Renamed folder' }, left, right, row, parentRow, checkbox, selectedRow, open, until, clickCheckbox }));
+
     // A synthetic empty root covers a genuinely empty list without the virtual
     // parent entry; bookmark events still drive every UI update.
     selectedRow(left).focus();

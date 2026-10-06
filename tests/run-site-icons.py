@@ -100,6 +100,8 @@ def run():
             shutil.copytree(ROOT / 'dist', extension)
             shutil.copy(ROOT / 'tests/site-icons.browser.js', extension / 'site-icons.browser.js')
             shutil.copy(ROOT / 'tests/bookmarks.browser.js', extension / 'bookmarks.browser.js')
+            shutil.copy(ROOT / 'tests/bookmark-commands.browser.js', extension / 'bookmark-commands.browser.js')
+            shutil.copy(ROOT / 'tests/bookmark-pointer.browser.js', extension / 'bookmark-pointer.browser.js')
             manifest = json.loads((extension / 'manifest.json').read_text())
             manifest['browser_specific_settings']['gecko']['id'] = 'site-icons-test@example.test'
             manifest['background']['scripts'].append('open-test.js')
@@ -321,6 +323,41 @@ def run():
                         if 'error' in bookmarks:
                             raise RuntimeError(json.dumps(bookmarks, indent=2))
                         result['results'].extend(bookmarks['results'])
+
+                        def pointer_script(script, args=None):
+                            checked = command('WebDriver:ExecuteAsyncScript', {
+                                'script': f'''
+                                    const done = arguments[arguments.length - 1];
+                                    (async () => {{ {script} }})()
+                                        .then(value => done({{value}}))
+                                        .catch(error => done({{error: String(error), stack: error.stack}}));
+                                ''', 'args': args or []
+                            })['value']
+                            if 'error' in checked:
+                                raise RuntimeError(json.dumps(checked, indent=2))
+                            return checked.get('value')
+
+                        pointer_script("window.pointerTests = await import('./bookmark-pointer.browser.js'); await window.pointerTests.prepare();")
+                        try:
+                            for side in [0, 1]:
+                                for kind in ['checkbox', 'row', 'gap']:
+                                    wheel = pointer_script('return await window.pointerTests.reset(arguments[0]);', [side])
+                                    command('WebDriver:PerformActions', {'actions': [{
+                                        'type': 'wheel', 'id': 'list-wheel', 'actions': [{
+                                            'type': 'scroll', 'origin': 'viewport', 'x': wheel['x'], 'y': wheel['y'],
+                                            'deltaX': 0, 'deltaY': 5000, 'duration': 0
+                                        }]
+                                    }]})
+                                    point = pointer_script('return await window.pointerTests.position(arguments[0], arguments[1]);', [side, kind])
+                                    pointer_actions([
+                                        {'type': 'pointerMove', 'x': point['x'], 'y': point['y'], 'duration': 0},
+                                        {'type': 'pointerDown', 'button': 0},
+                                        {'type': 'pointerUp', 'button': 0}
+                                    ])
+                                    result['results'].append(pointer_script('return await window.pointerTests.verify(arguments[0], arguments[1]);', [side, kind]))
+                        finally:
+                            command('WebDriver:ReleaseActions')
+                            pointer_script('await window.pointerTests.cleanup(); delete window.pointerTests;')
                         for assertion in result['results']:
                             print('PASS', assertion)
                         print(f"Passed {len(result['results'])} assertions in Firefox")

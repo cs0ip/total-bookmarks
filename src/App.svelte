@@ -3,6 +3,7 @@
   import BookmarkPanels from './components/BookmarkPanels.svelte';
   import { PARENT_FOLDER_ITEM_ID } from './components/BookmarkList.svelte';
   import { ICON_ORIGINS } from './icons/protocol';
+  import { planMoves, type MoveRequest } from './bookmarks/move';
 
   type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
   type Side = 0 | 1;
@@ -16,6 +17,8 @@
     { folderId: '', selectedId: '' }
   ]);
   let loading = $state(true);
+  let moving = $state(false);
+  let refreshAfterMove: () => Promise<void> = async () => {};
   let error = $state('');
   let iconAccessAllowed = $state<boolean | null>(null);
   let requestingIconAccess = $state(false);
@@ -81,7 +84,7 @@
     error = '';
     try {
       const tree = await browser.bookmarks.getTree();
-      if (!isActive()) return;
+      if (!isActive() || moving) return;
       roots = tree;
       const index = new Map<string, BookmarkNode>();
       const pending = [...roots];
@@ -123,32 +126,93 @@
     }
   }
 
+  function canMoveItems(request: MoveRequest): boolean {
+    if (loading || moving || !request.ids.length || request.sourceId === rootId || request.destinationId === rootId) return false;
+    const source = findNode(request.sourceId);
+    const destination = findNode(request.destinationId);
+    if (!source?.children || !destination?.children || source.unmodifiable || destination.unmodifiable) return false;
+    const ids = new Set(request.ids);
+    for (const id of ids) {
+      const item = findNode(id);
+      if (!item || item.parentId !== request.sourceId || item.unmodifiable || item.type === 'separator') return false;
+    }
+    let folder = findNode(request.destinationId);
+    while (folder) {
+      if (ids.has(folder.id)) return false;
+      folder = findNode(folder.parentId);
+    }
+    return true;
+  }
+
+  async function moveItems(request: MoveRequest): Promise<string[]> {
+    if (!canMoveItems(request)) return [];
+    moving = true;
+    error = '';
+    const completed: string[] = [];
+    let result: string[] = [];
+    let failed = false;
+    try {
+      const source = await browser.bookmarks.getChildren(request.sourceId);
+      const destination = request.sourceId === request.destinationId ? source : await browser.bookmarks.getChildren(request.destinationId);
+      if (source.some((item) => request.ids.includes(item.id) && (item.unmodifiable || item.type === 'separator'))) {
+        throw new Error('Selected bookmarks cannot be moved');
+      }
+      const plan = planMoves(source, destination, request);
+      for (const move of plan.moves) {
+        await browser.bookmarks.move(move.id, { parentId: move.parentId, index: move.index });
+        completed.push(move.id);
+      }
+      result = plan.ids;
+    } catch (cause) {
+      failed = true;
+      result = completed;
+      console.error('Failed to move selected bookmarks', cause);
+    } finally {
+      moving = false;
+      await refreshAfterMove();
+      if (failed) error = 'Не удалось переместить выбранные элементы.';
+    }
+    return result;
+  }
+
   onMount(() => {
     let active = true;
     let pending = true;
-    let refreshing = false;
+    let refreshing: Promise<void> | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    async function refreshTree(): Promise<void> {
+    function refreshTree(): Promise<void> {
       timer = undefined;
-      if (!active || refreshing) return;
-      refreshing = true;
-      try {
-        // An event arriving during getTree requests another pass. Reads never
-        // overlap, so an older snapshot cannot overwrite a newer one.
-        while (active && pending) {
-          pending = false;
-          await loadTree(() => active);
+      if (!active || moving) return Promise.resolve();
+      if (refreshing) return refreshing;
+      if (!pending) return Promise.resolve();
+      refreshing = (async () => {
+        try {
+          // An event arriving during getTree requests another pass. Reads never
+          // overlap, so an older snapshot cannot overwrite a newer one.
+          while (active && pending && !moving) {
+            pending = false;
+            await loadTree(() => active);
+          }
+        } finally {
+          refreshing = undefined;
         }
-      } finally {
-        refreshing = false;
-      }
+      })();
+      return refreshing;
     }
+
+    refreshAfterMove = async () => {
+      pending = true;
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+      if (refreshing) await refreshing;
+      await refreshTree();
+    };
 
     function onBookmarksChanged(): void {
       pending = true;
       // Batch a burst of events, including changes made in this manager.
-      if (!refreshing && timer === undefined) timer = setTimeout(() => void refreshTree(), 50);
+      if (!moving && !refreshing && timer === undefined) timer = setTimeout(() => void refreshTree(), 50);
     }
 
     const events = [
@@ -220,5 +284,7 @@
     onSelect={(side, id) => (panes[side].selectedId = id)}
     onOpenFolder={navigate}
     onOpenBookmark={openBookmark}
+    {canMoveItems}
+    onMoveItems={moveItems}
   />
 </main>

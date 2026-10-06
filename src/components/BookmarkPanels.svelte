@@ -2,9 +2,12 @@
   import { onMount, tick, untrack } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import BookmarkList from './BookmarkList.svelte';
+  import CommandBar, { type CommandBarButton } from './CommandBar.svelte';
+  import type { MoveRequest } from '../bookmarks/move';
 
   type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
   type Side = 0 | 1;
+  type MoveDirection = 'up' | 'down' | 'left' | 'right';
   type FolderState = { markedIds: Set<string>; focusedId: string };
   type PaneView = {
     side: Side;
@@ -20,6 +23,8 @@
     onSelect: (side: Side, id: string) => void;
     onOpenFolder: (side: Side, id: string) => void;
     onOpenBookmark: (url: string) => void | Promise<void>;
+    canMoveItems: (request: MoveRequest) => boolean;
+    onMoveItems: (request: MoveRequest) => Promise<string[]>;
   };
 
   let {
@@ -28,19 +33,83 @@
     loading,
     onSelect,
     onOpenFolder,
-    onOpenBookmark
+    onOpenBookmark,
+    canMoveItems,
+    onMoveItems
   }: Props = $props();
 
   let panels: HTMLDivElement;
   let activeSide = $state<Side>(0);
+  let moving = $state(false);
   let leftShare = $state(0.5);
   let drag = $state<{ pointerId: number; offset: number } | null>(null);
   const folderStates = [new SvelteMap<string, FolderState>(), new SvelteMap<string, FolderState>()];
   const emptyMarkedIds = new Set<string>();
-  const lists: ({ focusSelected: () => void } | undefined)[] = [];
+  const lists: ({ focusSelected: (reveal?: boolean) => void } | undefined)[] = [];
+  const commands: CommandBarButton[] = $derived([
+    moveButton('up', 'Переместить вверх'),
+    moveButton('down', 'Переместить вниз'),
+    moveButton('right', 'Переместить вправо'),
+    moveButton('left', 'Переместить влево')
+  ]);
 
   function markedIdsFor(pane: PaneView): Set<string> {
     return folderStates[pane.side].get(pane.folder?.id ?? '')?.markedIds ?? emptyMarkedIds;
+  }
+
+  function moveRequest(direction: MoveDirection): MoveRequest | undefined {
+    const source = direction === 'right' ? left : direction === 'left' ? right : activeSide === 0 ? left : right;
+    const destination = direction === 'right' ? right : direction === 'left' ? left : source;
+    if (!source.folder || !destination.folder) return;
+    const marked = source.items.filter((item) => markedIdsFor(source).has(item.id));
+    const focused = source.items.find((item) => item.id === source.selectedId && item.type !== 'separator');
+    return {
+      sourceId: source.folder.id,
+      destinationId: destination.folder.id,
+      ids: marked.length ? marked.map((item) => item.id) : focused ? [focused.id] : [],
+      direction: direction === 'up' || direction === 'down' ? direction : undefined,
+      afterId: destination.selectedId
+    };
+  }
+
+  function moveButton(direction: MoveDirection, title: string): CommandBarButton {
+    const request = moveRequest(direction);
+    return {
+      title,
+      disabled: loading || moving || !request || !canMoveItems(request),
+      action: () => moveSelected(direction)
+    };
+  }
+
+  async function moveSelected(direction: MoveDirection): Promise<void> {
+    const request = moveRequest(direction);
+    if (moving || loading || !request || !canMoveItems(request)) return;
+    const sourcePane = direction === 'right' ? left : direction === 'left' ? right : activeSide === 0 ? left : right;
+    const markedToTransfer = new Set(request.ids.filter((id) => markedIdsFor(sourcePane).has(id)));
+    moving = true;
+    try {
+      const movedIds = (await onMoveItems(request)).filter((id) => markedToTransfer.has(id));
+      // Wait for the final tree to reach the lists before restoring moved marks.
+      await tick();
+      if (!movedIds.length || (direction !== 'left' && direction !== 'right')) return;
+      const sourceSide: Side = direction === 'right' ? 0 : 1;
+      const destinationSide: Side = direction === 'right' ? 1 : 0;
+      const sourceState = folderStates[sourceSide].get(request.sourceId);
+      if (sourceState && request.sourceId !== request.destinationId) {
+        const markedIds = new Set(sourceState.markedIds);
+        for (const id of movedIds) markedIds.delete(id);
+        folderStates[sourceSide].set(request.sourceId, { ...sourceState, markedIds });
+      }
+      const destinationState = folderStates[destinationSide].get(request.destinationId);
+      const markedIds = new Set(destinationState?.markedIds);
+      for (const id of movedIds) markedIds.add(id);
+      folderStates[destinationSide].set(request.destinationId, {
+        markedIds,
+        focusedId: destinationState?.focusedId ?? ''
+      });
+    } finally {
+      moving = false;
+    }
   }
 
   function selectItem(pane: PaneView, id: string): void {
@@ -81,8 +150,8 @@
     return pane.dataset.bookmarkPane === '0' ? 0 : 1;
   }
 
-  function focusActivePane(): void {
-    lists[activeSide]?.focusSelected();
+  function focusActivePane(reveal = true): void {
+    lists[activeSide]?.focusSelected(reveal);
   }
 
   function startResize(event: PointerEvent): void {
@@ -91,7 +160,7 @@
     const divider = event.currentTarget as HTMLDivElement;
     drag = { pointerId: event.pointerId, offset: event.clientX - divider.getBoundingClientRect().left };
     divider.setPointerCapture(event.pointerId);
-    focusActivePane();
+    focusActivePane(false);
   }
 
   function resizePanels(event: PointerEvent): void {
@@ -123,17 +192,24 @@
     async function restoreFocus(): Promise<void> {
       await tick();
       // Browser tabs and native permission dialogs keep their own focus.
-      if (mounted && document.hasFocus()) focusActivePane();
+      if (mounted && document.hasFocus() && paneSideFor(document.activeElement) === undefined) focusActivePane();
     }
 
     function onDocumentMousedown(event: MouseEvent): void {
       if (event.button !== 0) return;
       const side = paneSideFor(event.target);
       if (side !== undefined) activeSide = side;
-      if (side !== undefined && event.target instanceof Element && event.target.closest('button[aria-pressed]')) return;
       // Preserve focus without cancelling the subsequent button click.
       event.preventDefault();
-      focusActivePane();
+      if (side !== undefined && event.target instanceof Element && !event.target.closest('input[type="checkbox"]')) {
+        const row = event.target.closest('[data-bookmark-row]');
+        const button = row?.querySelector<HTMLButtonElement>('button[aria-pressed]');
+        if (button) {
+          button.focus({ preventScroll: true });
+          return;
+        }
+      }
+      focusActivePane(false);
     }
 
     function onDocumentKeydown(event: KeyboardEvent): void {
@@ -178,7 +254,7 @@
 >
   {#each [left, right] as pane (pane.side)}
     <section
-      class="flex min-h-[360px] min-w-0 max-h-[calc(100vh-116px)] flex-col overflow-hidden rounded-xl border border-[#dce2ed] bg-white max-[700px]:min-h-[260px] max-[700px]:max-h-[45vh]"
+      class="flex min-h-[360px] min-w-0 max-h-[calc(100vh-180px)] flex-col overflow-hidden rounded-xl border border-[#dce2ed] bg-white max-[700px]:min-h-[260px] max-[700px]:max-h-[45vh]"
       aria-label={pane.side === 0 ? 'Левая панель' : 'Правая панель'}
       data-bookmark-pane={pane.side}
     >
@@ -237,6 +313,8 @@
     {/if}
   {/each}
 </div>
+
+<CommandBar buttons={commands} />
 
 <style>
   .folder-path {

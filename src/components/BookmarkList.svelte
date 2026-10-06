@@ -23,6 +23,9 @@
 
   let { items, selectedId, markedIds, parentFolderId, loading = false, active = false, onActivate, onSelect, onMarkedIdsChange, onOpenFolder, onOpenBookmark }: Props = $props();
   let list: HTMLDivElement;
+  let preservingViewport = false;
+  let previousRows: BookmarkNode[] | undefined;
+  let previousSelectedId: string | undefined;
   const rows: BookmarkNode[] = $derived(parentFolderId ? [
     { id: PARENT_FOLDER_ITEM_ID, title: '..', type: 'folder', children: [] },
     ...items
@@ -66,15 +69,25 @@
   }
 
   $effect(() => {
-    if (active) focusSelected();
+    const reveal = rows !== previousRows || activeSelectedId !== previousSelectedId;
+    previousRows = rows;
+    previousSelectedId = activeSelectedId;
+    if (active) focusSelected(reveal);
   });
 
-  export function focusSelected(): void {
+  export function focusSelected(reveal = true): void {
     const selectedIndex = rows.findIndex((item) => item.id === activeSelectedId);
     const selected = !loading && selectedIndex >= 0 ? list.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')[selectedIndex] : list;
     const target = selected ?? list;
-    if (document.activeElement !== target) target.focus({ preventScroll: true });
-    if (target !== list) keepRowVisible(target);
+    if (document.activeElement !== target) {
+      preservingViewport = !reveal;
+      try {
+        target.focus({ preventScroll: true });
+      } finally {
+        preservingViewport = false;
+      }
+    }
+    if (reveal && target !== list) keepRowVisible(target);
   }
 
   function keepRowVisible(target: HTMLElement): void {
@@ -90,7 +103,7 @@
 
   function onItemFocus(item: BookmarkNode, target: HTMLButtonElement): void {
     onSelect(item.id);
-    keepRowVisible(target);
+    if (!preservingViewport) keepRowVisible(target);
   }
 
   function onListKeydown(event: KeyboardEvent): void {
@@ -151,7 +164,7 @@
     <p class="m-0 px-[14px] py-[30px] text-center text-[#758097]">Папка пуста</p>
   {:else}
     {#each rows as item (item.id)}
-      <div class={`flex min-w-0 items-center gap-1 rounded-lg focus-within:outline-2 focus-within:outline-offset-0 focus-within:outline-[#5f44b4] ${activeSelectedId === item.id ? 'bg-[#ebe6fb]' : markedIds.has(item.id) ? 'bg-[#f1f6fd]' : 'hover:bg-[#f5f6fb]'}`}>
+      <div data-bookmark-row class={`flex min-w-0 items-center gap-1 rounded-lg focus-within:outline-2 focus-within:outline-offset-0 focus-within:outline-[#5f44b4] ${activeSelectedId === item.id ? 'bg-[#ebe6fb]' : markedIds.has(item.id) ? 'bg-[#f1f6fd]' : 'hover:bg-[#f5f6fb]'}`}>
         {#if item.id !== PARENT_FOLDER_ITEM_ID && item.type !== 'separator'}
           <Bookmark
             bookmark={item}
