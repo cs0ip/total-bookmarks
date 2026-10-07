@@ -78,3 +78,7 @@ CHROME_BIN=/path/to/chrome-for-testing/chrome node tests/run-chrome.mjs
 ```
 
 Браузерные проверки запускаются в отдельных временных профилях и не затрагивают пользовательские закладки. Для Chrome-проверок нужен Chrome for Testing либо Chromium с поддержкой загрузки расширений через командную строку.
+
+## Лицензия
+
+Исходный код Total Bookmarks распространяется под лицензией [Mozilla Public License 2.0](LICENSE) (MPL-2.0).

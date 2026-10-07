@@ -20,10 +20,12 @@ export default defineConfig(({ mode }) => {
     plugins: [tailwindcss(), svelte(), {
       name: 'extension-metadata',
       buildStart() {
+        this.addWatchFile(resolve(import.meta.dirname, 'LICENSE'));
         this.addWatchFile(resolve(import.meta.dirname, 'build/manifest.firefox.json'));
         for (const language of ['en', 'ru', 'zh']) this.addWatchFile(resolve(import.meta.dirname, `src/locales/${language}.json`));
       },
       generateBundle() {
+        this.emitFile({ type: 'asset', fileName: 'LICENSE', source: readFileSync(resolve(import.meta.dirname, 'LICENSE'), 'utf8') });
         this.emitFile({ type: 'asset', fileName: 'manifest.json', source: JSON.stringify(createManifest(target), null, 2) });
         for (const language of ['en', 'ru', 'zh']) {
           const messages = JSON.parse(readFileSync(resolve(import.meta.dirname, `src/locales/${language}.json`), 'utf8'));
