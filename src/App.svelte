@@ -5,7 +5,7 @@
   import BookmarkPanels from './components/BookmarkPanels.svelte';
   import { PARENT_FOLDER_ITEM_ID } from './components/BookmarkList.svelte';
   import { iconOrigins } from '@platform/icons';
-  import { getTree, getChildren, createBookmark, moveBookmark, isProtectedItem, type BookmarkNode } from './platform/bookmarks';
+  import { getTree, getChildren, getBookmarkChangeEvents, createBookmark, moveBookmark, isProtectedItem, type BookmarkNode } from './platform/bookmarks';
   import { planMoves, type CreateRequest, type ItemRequest, type MoveRequest } from './bookmarks/move';
 
   type Side = 0 | 1;
@@ -306,13 +306,7 @@
       if (!mutating && !refreshing && timer === undefined) timer = setTimeout(() => void refreshTree(), 50);
     }
 
-    const events = [
-      browser.bookmarks.onCreated,
-      browser.bookmarks.onRemoved,
-      browser.bookmarks.onChanged,
-      browser.bookmarks.onMoved,
-      browser.bookmarks.onChildrenReordered
-    ];
+    const events = getBookmarkChangeEvents();
     for (const event of events) event?.addListener(onBookmarksChanged);
     void refreshTree();
     void checkIconAccess();

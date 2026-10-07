@@ -15,6 +15,17 @@ function load(path, target, browser, require = () => { throw new Error('Unexpect
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 for (const target of ['firefox', 'chrome']) {
+  test(`${target}: subscribe only to supported bookmark change events`, () => {
+    const commonEvents = ['created', 'removed', 'changed', 'moved'].map((name) => ({ name }));
+    const reordered = { name: 'reordered' };
+    const bookmarks = Object.fromEntries(['onCreated', 'onRemoved', 'onChanged', 'onMoved'].map((name, index) => [name, commonEvents[index]]));
+    Object.defineProperty(bookmarks, 'onChildrenReordered', { get() {
+      assert.equal(target, 'chrome', 'Firefox must not access the unsupported event');
+      return reordered;
+    } });
+    const api = load('src/platform/bookmarks.ts', target, { bookmarks });
+    assert.deepEqual(Array.from(api.getBookmarkChangeEvents()), target === 'chrome' ? [...commonEvents, reordered] : commonEvents);
+  });
   test(`${target}: normalize a native tree and preserve protected folders and separators`, async () => {
     const tree = [{ id: 'root', title: '', children: [
       { id: 'bar', title: 'Bar', folderType: 'bookmarks-bar' },
@@ -100,6 +111,9 @@ test('Both packages contain valid platform manifests, localized metadata, and ic
       assert.deepEqual(manifest.background.scripts, ['background.js']);
       assert.ok(manifest.browser_specific_settings.gecko.id);
       assert.ok(manifest.permissions.includes('alarms'));
+      const html = readFileSync(new URL('index.html', dir), 'utf8');
+      const main = html.match(/src="\.\/([^"]+\.js)"/)[1];
+      assert.doesNotMatch(readFileSync(new URL(main, dir), 'utf8'), /onChildrenReordered/);
     }
   }
 });

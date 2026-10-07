@@ -28,6 +28,17 @@ export async function getChildren(id: string): Promise<BookmarkNode[]> {
   return (await browser.bookmarks.getChildren(id)).map(normalizeBookmark);
 }
 
+export function getBookmarkChangeEvents() {
+  const events = [
+    browser.bookmarks.onCreated,
+    browser.bookmarks.onRemoved,
+    browser.bookmarks.onChanged,
+    browser.bookmarks.onMoved
+  ];
+  // Firefox does not implement this event; exclude it from its compiled bundle.
+  return __BROWSER_TARGET__ === 'chrome' ? [...events, browser.bookmarks.onChildrenReordered] : events;
+}
+
 export async function createBookmark(details: browser.bookmarks.CreateDetails): Promise<BookmarkNode> {
   // Chrome rejects Firefox's `type` property; a missing URL creates a folder.
   const { type, ...common } = details;
