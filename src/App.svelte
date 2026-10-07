@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { t, type TranslationKey } from './i18n';
   import { onMount } from 'svelte';
+  import LanguagePicker from './components/LanguagePicker.svelte';
   import BookmarkPanels from './components/BookmarkPanels.svelte';
   import { PARENT_FOLDER_ITEM_ID } from './components/BookmarkList.svelte';
   import { ICON_ORIGINS } from './icons/protocol';
@@ -21,7 +23,8 @@
   let mutating = $state(false);
   let mutationFocusPositions: FocusPosition[] | undefined;
   let refreshAfterMutation: () => Promise<void> = async () => {};
-  let error = $state('');
+  let error = $state<TranslationKey | ''>('');
+  let languageMenuOpen = $state(false);
   let iconAccessAllowed = $state<boolean | null>(null);
   let requestingIconAccess = $state(false);
   const manifest = browser.runtime.getManifest();
@@ -41,7 +44,7 @@
       // Call directly from the click handler to retain Firefox's user gesture.
       iconAccessAllowed = await browser.permissions.request({ origins: ICON_ORIGINS });
     } catch (cause) {
-      error = 'Не удалось разрешить загрузку иконок.';
+      error = 'iconPermissionError';
       console.error('Failed to request favicon host permissions', cause);
     } finally {
       requestingIconAccess = false;
@@ -65,7 +68,7 @@
     const names: string[] = [];
     let folder = currentFolder(side);
     while (folder && folder.id !== rootId) {
-      names.push(folder.title || 'Без названия');
+      names.push(folder.title || $t('untitled'));
       folder = findNode(folder.parentId);
     }
     return names.reverse().join(' / ');
@@ -115,7 +118,7 @@
       }
     } catch (cause) {
       if (!isActive()) return;
-      error = 'Не удалось загрузить закладки.';
+      error = 'loadError';
       console.error('Failed to load bookmarks', cause);
     } finally {
       if (isActive()) loading = false;
@@ -133,7 +136,7 @@
     try {
       await browser.tabs.create({ url });
     } catch (cause) {
-      error = 'Не удалось открыть закладку.';
+      error = 'openError';
       console.error('Failed to open the bookmark', cause);
     }
   }
@@ -196,7 +199,7 @@
     } finally {
       mutating = false;
       await refreshAfterMutation();
-      if (failed) error = 'Не удалось создать элемент.';
+      if (failed) error = 'createError';
     }
     return createdId;
   }
@@ -225,7 +228,7 @@
       mutationFocusPositions = positions;
       await refreshAfterMutation();
       mutationFocusPositions = undefined;
-      if (failed) error = 'Не удалось удалить выбранные элементы.';
+      if (failed) error = 'removeError';
     }
   }
 
@@ -258,7 +261,7 @@
       if (request.sourceId !== request.destinationId) mutationFocusPositions = positions;
       await refreshAfterMutation();
       mutationFocusPositions = undefined;
-      if (failed) error = 'Не удалось переместить выбранные элементы.';
+      if (failed) error = 'moveError';
     }
     return result;
   }
@@ -326,46 +329,48 @@
 </script>
 
 <svelte:head>
-  <title>Total Bookmarks — менеджер закладок</title>
+  <title>{$t('pageTitle')}</title>
 </svelte:head>
 
 <main class="flex min-h-screen flex-col gap-[18px] p-6 max-[700px]:p-[14px]">
   <header class="flex items-center justify-between gap-4">
     <div class="flex items-center gap-3">
-      <img class="size-9" src="./icons/bookmark.svg" alt="" />
+      <img class="size-9" src="./icons/logo.svg" alt="" />
       <div>
         <h1 class="text-[21px] leading-[1.15]">Total Bookmarks</h1>
-        <p class="mt-[3px] text-[#657088]">Двухпанельный менеджер закладок</p>
+        <p class="mt-[3px] text-[#657088]">{$t('subtitle')}</p>
       </div>
     </div>
+    <LanguagePicker onOpenChange={(open) => (languageMenuOpen = open)} />
   </header>
 
   {#if iconAccessAllowed === false}
     <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#d5dbea] bg-white px-[14px] py-[10px] text-[#34405a]" role="status">
       {#if iconManifestReady}
-        <span>Для загрузки иконок сайтов нужен доступ к сайтам закладок.</span>
+        <span>{$t('iconPermission')}</span>
         <button
           class="cursor-pointer rounded-lg border border-[#d5dbea] bg-white px-3 py-2 disabled:cursor-not-allowed disabled:opacity-[.45]"
           type="button"
           onclick={requestIconAccess}
           disabled={requestingIconAccess}
-        >Разрешить загрузку иконок</button>
+        >{$t('allowIcons')}</button>
       {:else}
-        <span>Перезагрузите расширение, чтобы применить обновление иконок.</span>
+        <span>{$t('reloadForIcons')}</span>
         <button
           class="cursor-pointer rounded-lg border border-[#d5dbea] bg-white px-3 py-2"
           type="button"
           onclick={() => browser.runtime.reload()}
-        >Перезагрузить расширение</button>
+        >{$t('reloadExtension')}</button>
       {/if}
     </div>
   {/if}
 
   {#if error}
-    <p class="rounded-lg bg-[#fff1f1] px-[14px] py-[10px] text-[#a02c2c]" role="alert">{error}</p>
+    <p class="rounded-lg bg-[#fff1f1] px-[14px] py-[10px] text-[#a02c2c]" role="alert">{$t(error)}</p>
   {/if}
 
   <BookmarkPanels
+    externalPopupOpen={languageMenuOpen}
     left={paneView(0)}
     right={paneView(1)}
     loading={loading && roots.length === 0}

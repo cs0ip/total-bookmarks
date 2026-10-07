@@ -3,6 +3,7 @@
 </script>
 
 <script lang="ts">
+  import { t } from '../i18n';
   import { onMount } from 'svelte';
   import Bookmark from './Bookmark.svelte';
 
@@ -155,7 +156,7 @@
   }
 
   function itemTitle(item: BookmarkNode): string {
-    return item.title || (item.type === 'separator' ? 'Разделитель' : 'Без названия');
+    return item.title || (item.type === 'separator' ? $t('separator') : $t('untitled'));
   }
 
   function openItem(item: BookmarkNode): void {
@@ -176,11 +177,11 @@
 
 </script>
 
-<div bind:this={list} data-bookmark-list role="group" aria-label="Список закладок" tabindex="-1" onfocusin={onActivate} class="relative min-h-0 flex-1 overflow-auto p-[6px]">
+<div bind:this={list} data-bookmark-list role="group" aria-label={$t('bookmarkList')} tabindex="-1" onfocusin={onActivate} class="relative min-h-0 flex-1 overflow-auto p-[6px]">
   {#if loading}
-    <p class="m-0 px-[14px] py-[30px] text-center text-[#758097]">Загрузка…</p>
+    <p class="m-0 px-[14px] py-[30px] text-center text-[#758097]">{$t('loading')}</p>
   {:else if rows.length === 0}
-    <p class="m-0 px-[14px] py-[30px] text-center text-[#758097]">Папка пуста</p>
+    <p class="m-0 px-[14px] py-[30px] text-center text-[#758097]">{$t('emptyFolder')}</p>
   {:else}
     {#each rows as item (item.id)}
       <div data-bookmark-row data-bookmark-id={item.id} class:dragged={draggedIds?.has(item.id)} class={`flex min-w-0 items-center gap-1 rounded-lg focus-within:outline-2 focus-within:outline-offset-0 focus-within:outline-[#5f44b4] ${activeSelectedId === item.id ? 'bg-[#ebe6fb]' : markedIds.has(item.id) ? 'bg-[#f1f6fd]' : 'hover:bg-[#f5f6fb]'}`}>
@@ -200,7 +201,7 @@
             class="flex min-w-0 flex-1 cursor-pointer items-center gap-[10px] border-0 bg-transparent p-[9px] text-left text-inherit focus:outline-none"
             type="button"
             aria-pressed={activeSelectedId === item.id}
-            aria-label={item.id === PARENT_FOLDER_ITEM_ID ? 'На уровень выше' : undefined}
+            aria-label={item.id === PARENT_FOLDER_ITEM_ID ? $t('upOneLevel') : undefined}
             onclick={() => onSelect(item.id)}
             onfocus={(event) => onItemFocus(item, event.currentTarget)}
             ondblclick={() => openItem(item)}
@@ -213,7 +214,7 @@
             {/if}
             <span class="flex min-w-0 flex-col">
               <span class="truncate font-semibold">{itemTitle(item)}</span>
-              <span class="text-xs text-[#738098]">{item.id === PARENT_FOLDER_ITEM_ID ? 'Родительская папка' : item.type === 'separator' ? 'Разделитель' : 'Папка'}</span>
+              <span class="text-xs text-[#738098]">{item.id === PARENT_FOLDER_ITEM_ID ? $t('parentFolder') : item.type === 'separator' ? $t('separator') : $t('folder')}</span>
             </span>
           </button>
         {/if}

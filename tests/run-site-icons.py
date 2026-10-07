@@ -99,6 +99,7 @@ def run():
             extension = work / 'extension'
             shutil.copytree(ROOT / 'dist', extension)
             shutil.copy(ROOT / 'tests/site-icons.browser.js', extension / 'site-icons.browser.js')
+            shutil.copy(ROOT / 'tests/locales.browser.js', extension / 'locales.browser.js')
             shutil.copy(ROOT / 'tests/bookmarks.browser.js', extension / 'bookmarks.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-commands.browser.js', extension / 'bookmark-commands.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-delete.browser.js', extension / 'bookmark-delete.browser.js')
@@ -392,6 +393,85 @@ def run():
                                         {'type': 'pointerUp', 'button': 0}
                                     ])
                                     result['results'].append(pointer_script('return await window.pointerTests.verify(arguments[0], arguments[1]);', [side, kind]))
+                            wheel = pointer_script('return await window.pointerTests.reset(0);')
+                            command('WebDriver:PerformActions', {'actions': [{
+                                'type': 'wheel', 'id': 'language-list-wheel', 'actions': [{
+                                    'type': 'scroll', 'origin': 'viewport', **wheel,
+                                    'deltaX': 0, 'deltaY': 500, 'duration': 0
+                                }]
+                            }]})
+                            language_point = pointer_script('''
+                                const lists = [...document.querySelectorAll('[data-bookmark-list]')];
+                                const deadline = Date.now() + 5000;
+                                while (lists[0].scrollTop < 200 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+                                if (lists[0].scrollTop < 200) throw new Error('The language menu scroll fixture did not scroll');
+                                await new Promise(resolve => setTimeout(resolve, 250));
+                                window.languageTest = { focus: document.activeElement, scroll: lists.map(list => list.scrollTop) };
+                                const bounds = document.querySelector('[data-language-button]').getBoundingClientRect();
+                                return { x: Math.round(bounds.left + bounds.width / 2), y: Math.round(bounds.top + bounds.height / 2) };
+                            ''')
+                            pointer_actions([
+                                {'type': 'pointerMove', **language_point, 'duration': 0},
+                                {'type': 'pointerDown', 'button': 0},
+                                {'type': 'pause', 'duration': 150}
+                            ])
+                            pointer_script('''
+                                if (document.activeElement !== document.querySelector('[data-language-button]') || [...document.querySelectorAll('[data-bookmark-list]')].some((list, index) => list.scrollTop !== window.languageTest.scroll[index])) throw new Error('Pressing the language button stole focus or moved a manually scrolled list: ' + JSON.stringify({ active: document.activeElement?.outerHTML, scroll: [...document.querySelectorAll('[data-bookmark-list]')].map(list => list.scrollTop), expected: window.languageTest.scroll }));
+                            ''')
+                            pointer_actions([{'type': 'pointerUp', 'button': 0}])
+                            pointer_script('''
+                                if (!document.querySelector('#language-menu')?.contains(document.activeElement)) throw new Error('Native click did not focus the language menu');
+                            ''')
+                            result['results'].append('Native language-button press and click preserve manually scrolled lists and focus the nonmodal menu')
+                            browser_key('KEY_ArrowDown')
+                            browser_key('KEY_Enter')
+                            pointer_script('''
+                                if (document.documentElement.lang !== 'zh-Hans' || document.querySelector('#language-menu') || document.activeElement !== window.languageTest.focus || [...document.querySelectorAll('[data-bookmark-list]')].some((list, index) => list.scrollTop !== window.languageTest.scroll[index])) throw new Error('Native keyboard language selection failed to preserve pane focus and scrolling');
+                            ''')
+                            result['results'].append('Native arrow and Enter keys select Chinese without moving bookmark focus or scrolling')
+                            pointer_actions([
+                                {'type': 'pointerMove', **language_point, 'duration': 0},
+                                {'type': 'pointerDown', 'button': 0},
+                                {'type': 'pointerUp', 'button': 0}
+                            ])
+                            browser_key('KEY_ArrowUp')
+                            browser_key('KEY_Enter')
+                            pointer_script('''
+                                if (document.documentElement.lang !== 'ru' || document.activeElement !== window.languageTest.focus) throw new Error('Native language selection did not restore Russian');
+                            ''')
+                            pointer_actions([
+                                {'type': 'pointerMove', **language_point, 'duration': 0},
+                                {'type': 'pointerDown', 'button': 0},
+                                {'type': 'pointerUp', 'button': 0}
+                            ])
+                            browser_key('KEY_Escape')
+                            pointer_script('''
+                                if (document.querySelector('#language-menu') || document.activeElement !== window.languageTest.focus || [...document.querySelectorAll('[data-bookmark-list]')].some((list, index) => list.scrollTop !== window.languageTest.scroll[index])) throw new Error('Native Escape did not close the language menu and preserve list positions');
+                                delete window.languageTest;
+                            ''')
+                            result['results'].append('Native Escape dismisses the language menu and restores pane focus without revealing an offscreen row')
+                            for language in ['en', 'ru']:
+                                pointer_actions([
+                                    {'type': 'pointerMove', **language_point, 'duration': 0},
+                                    {'type': 'pointerDown', 'button': 0},
+                                    {'type': 'pointerUp', 'button': 0}
+                                ])
+                                option_point = pointer_script('''
+                                    const option = document.querySelector(`[data-locale="${arguments[0]}"]`);
+                                    if (!option) throw new Error('The language menu did not open for mouse selection');
+                                    const bounds = option.getBoundingClientRect();
+                                    return { x: Math.round(bounds.left + bounds.width / 2), y: Math.round(bounds.top + bounds.height / 2) };
+                                ''', [language])
+                                pointer_actions([
+                                    {'type': 'pointerMove', **option_point, 'duration': 100},
+                                    {'type': 'pointerDown', 'button': 0},
+                                    {'type': 'pause', 'duration': 150},
+                                    {'type': 'pointerUp', 'button': 0}
+                                ])
+                                pointer_script('''
+                                    if (document.documentElement.lang !== arguments[0] || (await browser.storage.local.get('total-bookmarks:locale'))['total-bookmarks:locale'] !== arguments[0] || document.querySelector('#language-menu')) throw new Error('Native mouse language selection did not apply: ' + arguments[0] + '; actual: ' + document.documentElement.lang);
+                                ''', [language])
+                                result['results'].append(f'Native mouse click selects {language} and persists the language preference')
                         finally:
                             command('WebDriver:ReleaseActions')
                             pointer_script('await window.pointerTests.cleanup(); delete window.pointerTests;')
@@ -533,6 +613,28 @@ def run():
                         finally:
                             command('WebDriver:ReleaseActions')
                             pointer_script('await window.dragTests.cleanup(); delete window.dragTests;')
+                        manager_url = pointer_script('''
+                            await browser.storage.local.set({ 'total-bookmarks:locale': 'ru' });
+                            // Page storage must not override the extension preference.
+                            localStorage.setItem('total-bookmarks:locale', 'zh');
+                            return browser.runtime.getURL('index.html');
+                        ''')
+                        command('WebDriver:Navigate', {'url': manager_url})
+                        for action in ['open', 'reload']:
+                            if action == 'reload':
+                                command('WebDriver:Refresh')
+                            pointer_script('''
+                                const deadline = Date.now() + 10000;
+                                while (Date.now() < deadline) {
+                                    if (document.querySelector('[data-language-button]')) {
+                                        if (document.documentElement.lang !== 'ru' || document.querySelector('[data-bookmark-pane="0"]').getAttribute('aria-label') !== 'Левая панель') throw new Error('The manager rendered before restoring its saved language');
+                                        return;
+                                    }
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('The manager did not mount after restoring the language');
+                            ''')
+                            result['results'].append(f'The manager restores Russian from extension storage before rendering on {action}')
                         for assertion in result['results']:
                             print('PASS', assertion)
                         print(f"Passed {len(result['results'])} assertions in Firefox")

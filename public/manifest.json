@@ -2,24 +2,25 @@
   "manifest_version": 3,
   "name": "Total Bookmarks",
   "version": "0.1.0",
-  "description": "Двухпанельный менеджер закладок Firefox.",
-  "permissions": ["bookmarks", "alarms"],
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "en",
+  "permissions": ["bookmarks", "alarms", "storage"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self';"
   },
   "action": {
-    "default_title": "Открыть менеджер закладок",
+    "default_title": "__MSG_openManager__",
     "default_area": "navbar",
-    "default_icon": "icons/bookmark.svg"
+    "default_icon": "icons/logo.svg"
   },
   "background": {
     "scripts": ["background.js"],
     "type": "module"
   },
   "icons": {
-    "48": "icons/bookmark.svg",
-    "96": "icons/bookmark.svg"
+    "48": "icons/logo.svg",
+    "96": "icons/logo.svg"
   },
   "browser_specific_settings": {
     "gecko": {

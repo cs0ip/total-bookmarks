@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../i18n';
   import Favicons from './Favicons.svelte';
   type Props = {
     bookmark: browser.bookmarks.BookmarkTreeNode;
@@ -19,7 +20,7 @@
   type="checkbox"
   tabindex="-1"
   {checked}
-  aria-label={`${folder ? 'Выбрать папку' : 'Выбрать закладку'}: ${bookmark.title || 'Без названия'}`}
+  aria-label={`${folder ? $t('selectFolder') : $t('selectBookmark')}: ${bookmark.title || $t('untitled')}`}
   onchange={(event) => onCheckedChange(event.currentTarget.checked)}
 />
 <button
@@ -34,9 +35,9 @@
   <span class="flex min-w-0 flex-1 items-center gap-[10px]">
     <Favicons url={bookmark.url} {folder} />
     <span class="flex min-w-0 flex-1 flex-col">
-      <span class="truncate font-semibold">{bookmark.title || 'Без названия'}</span>
+      <span class="truncate font-semibold">{bookmark.title || $t('untitled')}</span>
       {#if folder}
-        <span class="text-xs text-[#738098]">Папка</span>
+        <span class="text-xs text-[#738098]">{$t('folder')}</span>
       {:else}
         <span class="truncate text-left text-xs text-[#738098]" dir="ltr" title={bookmark.url}>{bookmark.url}</span>
       {/if}

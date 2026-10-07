@@ -13,6 +13,7 @@
 </script>
 
 <script lang="ts">
+  import { t } from '../i18n';
   type Props = {
     buttons: readonly CommandBarButton[];
     label?: string;
@@ -24,7 +25,7 @@
 <div
   class="flex w-full shrink-0 items-center gap-1 overflow-x-auto rounded-lg border border-[#d5dbea] bg-[#e6eaf1] p-1"
   role="group"
-  aria-label="Команды"
+  aria-label={$t('commands')}
 >
   {#if label}<span class="shrink-0 px-2 text-[#34405a]">{label}</span>{/if}
   {#each buttons as button}

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="114" y1="137" x2="1138" y2="1111" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#562CF5"/>
+      <stop offset="0.52" stop-color="#6438FB"/>
+      <stop offset="1" stop-color="#7649FA"/>
+    </linearGradient>
+    <linearGradient id="panelWhite" x1="250" y1="312" x2="611" y2="940" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FBFBFC"/>
+      <stop offset="1" stop-color="#F1F1F4"/>
+    </linearGradient>
+    <linearGradient id="panelLav" x1="642" y1="312" x2="1002" y2="940" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ECE7FF"/>
+      <stop offset="1" stop-color="#DED8FA"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="322" y1="447" x2="960" y2="839" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#592FF6"/>
+      <stop offset="1" stop-color="#7448FA"/>
+    </linearGradient>
+    <linearGradient id="soft" x1="781" y1="479" x2="917" y2="838" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9A82EA"/>
+      <stop offset="1" stop-color="#A999E6"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="114" y="137" width="1024" height="974" rx="236" fill="url(#bg)"/>
+
+  <rect x="250" y="312" width="361" height="628" rx="44" fill="url(#panelWhite)"/>
+  <rect x="642" y="312" width="360" height="628" rx="44" fill="url(#panelLav)"/>
+
+  <!-- Large bookmark -->
+  <path d="M342 447H525C536.046 447 545 455.954 545 467V769C545 778.334 538.535 786.421 529.469 788.473L433.5 719L337.531 788.473C328.465 786.421 322 778.334 322 769V467C322 455.954 330.954 447 342 447Z" fill="url(#accent)"/>
+
+  <!-- Row 1 -->
+  <path d="M697 416H740C749.389 416 757 423.611 757 433V494C757 502.441 750.846 509.624 742.523 510.918L719 487L694.477 510.918C686.154 509.624 680 502.441 680 494V433C680 423.611 687.611 416 697 416Z" fill="url(#accent)"/>
+  <rect x="781" y="418" width="180" height="40" rx="20" fill="url(#accent)"/>
+  <rect x="781" y="479" width="136" height="32" rx="16" fill="url(#soft)"/>
+
+  <!-- Row 2 -->
+  <path d="M697 578H740C749.389 578 757 585.611 757 595V655C757 663.441 750.846 670.624 742.523 671.918L719 648L694.477 671.918C686.154 670.624 680 663.441 680 655V595C680 585.611 687.611 578 697 578Z" fill="url(#accent)"/>
+  <rect x="781" y="579" width="180" height="40" rx="20" fill="url(#accent)"/>
+  <rect x="781" y="640" width="136" height="32" rx="16" fill="url(#soft)"/>
+
+  <!-- Row 3 -->
+  <path d="M697 742H740C749.389 742 757 749.611 757 759V819C757 827.441 750.846 834.624 742.523 835.918L719 812L694.477 835.918C686.154 834.624 680 827.441 680 819V759C680 749.611 687.611 742 697 742Z" fill="url(#accent)"/>
+  <rect x="781" y="743" width="180" height="40" rx="20" fill="url(#accent)"/>
+  <rect x="781" y="804" width="136" height="32" rx="16" fill="url(#soft)"/>
+</svg>

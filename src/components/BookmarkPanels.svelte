@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../i18n';
   import { onMount, tick, untrack } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import BookmarkList from './BookmarkList.svelte';
@@ -33,6 +34,7 @@
     left: PaneView;
     right: PaneView;
     loading: boolean;
+    externalPopupOpen?: boolean;
     onSelect: (side: Side, id: string) => void;
     onOpenFolder: (side: Side, id: string) => void;
     onOpenBookmark: (url: string) => void | Promise<void>;
@@ -48,6 +50,7 @@
     left,
     right,
     loading,
+    externalPopupOpen = false,
     onSelect,
     onOpenFolder,
     onOpenBookmark,
@@ -77,41 +80,41 @@
   const emptyMarkedIds = new Set<string>();
   const lists: ({ focusSelected: (reveal?: boolean) => void; insertionAt: (y: number) => { afterId?: string; top: number } } | undefined)[] = [];
   const commands: PanelCommand[] = $derived([
-    moveButton('up', 'Переместить вверх'),
-    moveButton('down', 'Переместить вниз'),
-    moveButton('left', 'Переместить влево'),
-    moveButton('right', 'Переместить вправо'),
+    moveButton('up', $t('moveUp')),
+    moveButton('down', $t('moveDown')),
+    moveButton('left', $t('moveLeft')),
+    moveButton('right', $t('moveRight')),
     {
-      title: 'Всё',
-      description: 'Выделить все закладки и папки активной панели.',
+      title: $t('all'),
+      description: $t('selectAllHelp'),
       key: 'a',
       ctrlKey: true,
       separatorBefore: true,
-      labelBefore: 'Выделить:',
+      labelBefore: $t('selectLabel'),
       disabled: commandsDisabled || selectableIds(activeSide === 0 ? left : right).every((id) => markedIdsFor(activeSide === 0 ? left : right).has(id)),
       action: selectAll
     },
     {
-      title: 'Ничего',
-      description: 'Снять все отметки в активной панели.',
+      title: $t('none'),
+      description: $t('selectNoneHelp'),
       key: 'd',
       ctrlKey: true,
       disabled: commandsDisabled || markedIdsFor(activeSide === 0 ? left : right).size === 0,
       action: clearSelection
     },
     {
-      title: 'Закладку',
-      description: 'Создать закладку под текущим элементом активной панели.',
+      title: $t('bookmarkButton'),
+      description: $t('createBookmarkHelp'),
       key: 'b',
       ctrlKey: true,
       separatorBefore: true,
-      labelBefore: 'Создать:',
+      labelBefore: $t('createLabel'),
       disabled: commandsDisabled || !canCreateItem((activeSide === 0 ? left : right).folder?.id ?? ''),
       action: () => openCreation('bookmark')
     },
     {
-      title: 'Папку',
-      description: 'Создать папку под текущим элементом активной панели.',
+      title: $t('folderButton'),
+      description: $t('createFolderHelp'),
       key: 'f',
       ctrlKey: true,
       shiftKey: true,
@@ -119,8 +122,8 @@
       action: () => openCreation('folder')
     },
     {
-      title: 'Удалить',
-      description: 'Удалить выделенные элементы активной панели или текущий элемент после подтверждения.',
+      title: $t('delete'),
+      description: $t('deleteHelp'),
       key: 'Delete',
       ctrlKey: false,
       separatorBefore: true,
@@ -128,7 +131,7 @@
       action: removeSelected
     },
     {
-      title: 'Управление',
+      title: $t('help'),
       icon: '?',
       separatorBefore: true,
       popupId: 'keyboard-help',
@@ -214,7 +217,7 @@
   async function removeSelected(): Promise<void> {
     const request = removeRequest();
     if (loading || mutating || !canRemoveItems(request)) return;
-    if (!window.confirm(`Удалить выбранные элементы?\nКоличество элементов: ${request.ids.length}.\nПапки будут удалены вместе с содержимым.`)) return;
+    if (!window.confirm($t('confirmDelete', { count: request.ids.length }))) return;
     mutating = true;
     try {
       await onRemoveItems(request);
@@ -241,10 +244,10 @@
     return {
       title,
       description: {
-        up: 'Переместить выделенные элементы активной панели вверх, сохраняя их порядок. Без отметок перемещается текущий элемент.',
-        down: 'Переместить выделенные элементы активной панели вниз, сохраняя их порядок. Без отметок перемещается текущий элемент.',
-        left: 'Переместить выделенные элементы правой панели под текущий элемент левой. Без отметок перемещается текущий элемент правой панели.',
-        right: 'Переместить выделенные элементы левой панели под текущий элемент правой. Без отметок перемещается текущий элемент левой панели.'
+        up: $t('moveUpHelp'),
+        down: $t('moveDownHelp'),
+        left: $t('moveLeftHelp'),
+        right: $t('moveRightHelp')
       }[direction],
       key: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }[direction],
       ctrlKey: true,
@@ -421,8 +424,12 @@
     return pane.dataset.bookmarkPane === '0' ? 0 : 1;
   }
 
+  function isLanguagePickerTarget(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest('[data-language-picker]') !== null;
+  }
+
   function focusActivePane(reveal = true): void {
-    if (creation || helpOpen) return;
+    if (creation || helpOpen || externalPopupOpen) return;
     lists[activeSide]?.focusSelected(reveal);
   }
 
@@ -480,17 +487,23 @@
     function onDocumentFocus(event: FocusEvent): void {
       const side = paneSideFor(event.target);
       if (side !== undefined) activeSide = side;
-      else focusActivePane();
+      else if (!isLanguagePickerTarget(event.target)) focusActivePane();
     }
 
-    async function restoreFocus(): Promise<void> {
+    async function restoreFocus(event: FocusEvent): Promise<void> {
+      // Firefox can run microtasks between focusout and the new control's focusin.
+      if (isLanguagePickerTarget(event.relatedTarget)) return;
       await tick();
       // Browser tabs and native permission dialogs keep their own focus.
-      if (mounted && !creation && document.hasFocus() && paneSideFor(document.activeElement) === undefined) focusActivePane();
+      if (mounted && !creation && document.hasFocus() && !isLanguagePickerTarget(document.activeElement) && paneSideFor(document.activeElement) === undefined) focusActivePane();
     }
 
     function onDocumentMousedown(event: MouseEvent): void {
       if (creation) return;
+      if (isLanguagePickerTarget(event.target)) {
+        if (helpOpen) void closeHelp();
+        return;
+      }
       if (helpOpen) {
         if (event.target instanceof Element && event.target.closest('[data-keyboard-help]')) return;
         if (event.target instanceof Element && event.target.closest('button[aria-controls="keyboard-help"]')) { event.preventDefault(); return; }
@@ -513,7 +526,7 @@
     }
 
     function onDocumentKeydown(event: KeyboardEvent): void {
-      if (creation || helpOpen || event.isComposing || event.defaultPrevented) return;
+      if (creation || helpOpen || externalPopupOpen || event.isComposing || event.defaultPrevented) return;
       if (!event.altKey && !event.metaKey) {
         // Physical letter keys keep the shortcuts available in other layouts.
         const key = event.code.startsWith('Key') ? event.code.slice(3).toLowerCase() : event.key.toLowerCase();
@@ -589,15 +602,15 @@
   {#each [left, right] as pane (pane.side)}
     <section
       class="flex min-h-[360px] min-w-0 max-h-[calc(100vh-180px)] flex-col overflow-hidden rounded-xl border border-[#dce2ed] bg-white max-[700px]:min-h-[260px] max-[700px]:max-h-[45vh]"
-      aria-label={pane.side === 0 ? 'Левая панель' : 'Правая панель'}
+      aria-label={pane.side === 0 ? $t('leftPane') : $t('rightPane')}
       data-bookmark-pane={pane.side}
     >
       <header class="border-b border-[#e6eaf1] px-4 pt-[14px] pb-3">
-        <h2 class="mb-1 truncate text-[17px]">{pane.folder?.title || 'Все закладки'}</h2>
+        <h2 class="mb-1 truncate text-[17px]">{pane.folder?.title || $t('allBookmarks')}</h2>
         <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#758097]">
-          <span>Элементов: {pane.items.length}</span>
+          <span>{$t('itemCount', { count: pane.items.length })}</span>
           {#if markedIdsFor(pane).size > 0}
-            <span>Выбрано: {markedIdsFor(pane).size}</span>
+            <span>{$t('selectedCount', { count: markedIdsFor(pane).size })}</span>
           {/if}
         </div>
       </header>
@@ -609,7 +622,7 @@
         markedIds={markedIdsFor(pane)}
         parentFolderId={pane.folder?.parentId}
         {loading}
-        active={activeSide === pane.side && !creation && !helpOpen}
+        active={activeSide === pane.side && !creation && !helpOpen && !externalPopupOpen}
         dropMarkerTop={dropTarget?.side === pane.side ? dropTarget.top : undefined}
         draggedIds={itemDrag?.side === pane.side ? itemDrag.ids : undefined}
         onActivate={() => (activeSide = pane.side)}
@@ -620,7 +633,7 @@
       />
 
       <footer class="border-t border-[#e6eaf1] px-4 py-[10px] text-[#69748b]">
-        <div class="folder-path" title={pane.folderPath} aria-label={`Путь к текущей папке: ${pane.folderPath}`}>
+        <div class="folder-path" title={pane.folderPath} aria-label={$t('folderPath', { path: pane.folderPath })}>
           <span dir="ltr">{pane.folderPath || '\u00a0'}</span>
         </div>
       </footer>
@@ -630,13 +643,13 @@
       <div
         class="group flex cursor-col-resize touch-none justify-center max-[700px]:hidden"
         role="separator"
-        aria-label="Изменить ширину панелей"
+        aria-label={$t('resizePanels')}
         aria-orientation="vertical"
         aria-valuemin={20}
         aria-valuemax={80}
         aria-valuenow={Math.round(leftShare * 100)}
         tabindex="-1"
-        title="Перетащите, чтобы изменить ширину панелей; двойной клик — 50/50"
+        title={$t('resizeHint')}
         ondblclick={() => (leftShare = 0.5)}
         onpointerdown={startResize}
         onpointermove={resizePanels}
@@ -652,12 +665,12 @@
 
 {#if itemDrag}
   <div data-drag-preview aria-hidden="true" class="pointer-events-none fixed z-50 rounded-md border border-[#5f44b4] bg-white px-3 py-2 text-sm text-[#34405a] shadow-md" style:left={`${dragPoint.x + 14}px`} style:top={`${dragPoint.y + 14}px`}>
-    Перемещение: {itemDrag.ids.size}
+    {$t('movingCount', { count: itemDrag.ids.size })}
   </div>
 {/if}
 
 <div class="relative shrink-0">
-  <CommandBar buttons={commands} label="Переместить:" />
+  <CommandBar buttons={commands} label={$t('moveLabel')} />
   {#if helpOpen}<KeyboardHelp commands={commandShortcuts} onClose={() => void closeHelp()} />{/if}
 </div>
 

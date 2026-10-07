@@ -176,7 +176,12 @@ export async function runIconTests(origin) {
       const script = index.match(/<script[^>]*src="([^"]+)"/)[1];
       document.body.className = page.body.className;
       document.body.innerHTML = '<div id="app"></div>';
-      await import(script);
+      localStorage.removeItem('total-bookmarks:locale');
+      await browser.storage.local.remove('total-bookmarks:locale');
+      const originalUILanguage = browser.i18n.getUILanguage;
+      browser.i18n.getUILanguage = () => 'fr-FR';
+      try { await import(script); }
+      finally { browser.i18n.getUILanguage = originalUILanguage; }
       const toolbarRow = await until(() => [...document.querySelectorAll('button[aria-pressed]')].find((button) =>
         button.textContent.includes(toolbar.title)
       ));
@@ -194,6 +199,8 @@ export async function runIconTests(origin) {
       ));
       assert(downloaded.src === (await record(origin)).icon, 'An async background update replaces the default icon in the visible bookmark');
       assert(downloaded.src !== corruptLegacyIcon, 'A corrupt icon cached by the old downloader is replaced immediately');
+      const { runLanguageTests } = await import('./locales.browser.js');
+      results.push(...await runLanguageTests());
     } finally {
       await browser.bookmarks.remove(bookmark.id);
       await browser.bookmarks.remove(asyncBookmark.id);
