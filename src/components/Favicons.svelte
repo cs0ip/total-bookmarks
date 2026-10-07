@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { defaultIcons, ICON_REQUEST, ICON_UPDATED, siteOrigin, type IconUpdate } from '../icons/protocol';
+  import { defaultIcons, watchSiteIcon } from '@platform/icons';
 
   let { url, folder = false }: { url?: string; folder?: boolean } = $props();
   let icon = $state<string | null>(null);
@@ -7,27 +7,10 @@
   const source = $derived(icon ?? (folder ? defaultIcons.folder : defaultIcons.missing));
 
   $effect(() => {
-    const origin = siteOrigin(url);
     icon = null;
     failed = false;
-    if (folder || !origin) return;
-    let active = true;
-    let receivedUpdate = false;
-    function onUpdate(message: IconUpdate) {
-      if (message?.type === ICON_UPDATED && message.origin === origin) {
-        receivedUpdate = true;
-        icon = message.icon;
-        failed = false;
-      }
-    }
-    browser.runtime.onMessage.addListener(onUpdate);
-    void browser.runtime.sendMessage({ type: ICON_REQUEST, url }).then((cached: string | null) => {
-      if (active && !receivedUpdate) { icon = cached; failed = false; }
-    }).catch((cause) => console.error('Failed to get the favicon', cause));
-    return () => {
-      active = false;
-      browser.runtime.onMessage.removeListener(onUpdate);
-    };
+    if (folder || !url) return;
+    return watchSiteIcon(url, (value) => { icon = value; failed = false; });
   });
 </script>
 

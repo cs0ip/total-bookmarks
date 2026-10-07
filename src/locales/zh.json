@@ -84,6 +84,9 @@
   "chooseLanguage": "选择语言",
   "language": "语言",
   "confirmDelete": "删除所选项目？\n项目数量：{count}。\n文件夹及其内容都将被删除。",
-  "extensionDescription": "Firefox 双面板书签管理器。",
-  "openManager": "打开书签管理器"
+  "extensionDescription": "双面板书签管理器。",
+  "openManager": "打开书签管理器",
+  "about": "关于",
+  "closeAbout": "关闭关于窗口",
+  "author": "作者"
 }

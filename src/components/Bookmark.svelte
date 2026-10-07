@@ -1,8 +1,9 @@
 <script lang="ts">
+  import type { BookmarkNode } from '../platform/bookmarks';
   import { t } from '../i18n';
   import Favicons from './Favicons.svelte';
   type Props = {
-    bookmark: browser.bookmarks.BookmarkTreeNode;
+    bookmark: BookmarkNode;
     checked: boolean;
     focused: boolean;
     onCheckedChange: (checked: boolean) => void;

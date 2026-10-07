@@ -1,4 +1,4 @@
-type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
+import type { BookmarkNode } from '../platform/bookmarks';
 
 export type ItemRequest = {
   sourceId: string;

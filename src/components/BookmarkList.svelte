@@ -7,7 +7,7 @@
   import { onMount } from 'svelte';
   import Bookmark from './Bookmark.svelte';
 
-  type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
+  import type { BookmarkNode } from '../platform/bookmarks';
   type Props = {
     items: BookmarkNode[];
     selectedId: string;

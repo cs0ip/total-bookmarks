@@ -89,7 +89,7 @@ class Fixture(BaseHTTPRequestHandler):
 
 
 def run():
-    if not (ROOT / 'dist/background.js').exists():
+    if not (ROOT / 'dist/firefox/background.js').exists():
         raise RuntimeError('Run npm run build before these tests')
     server = ThreadingHTTPServer(('127.0.0.1', 0), Fixture)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -97,7 +97,7 @@ def run():
         with tempfile.TemporaryDirectory(prefix='total-bookmarks-icons-') as temporary:
             work = Path(temporary)
             extension = work / 'extension'
-            shutil.copytree(ROOT / 'dist', extension)
+            shutil.copytree(ROOT / 'dist/firefox', extension)
             shutil.copy(ROOT / 'tests/site-icons.browser.js', extension / 'site-icons.browser.js')
             shutil.copy(ROOT / 'tests/locales.browser.js', extension / 'locales.browser.js')
             shutil.copy(ROOT / 'tests/bookmarks.browser.js', extension / 'bookmarks.browser.js')

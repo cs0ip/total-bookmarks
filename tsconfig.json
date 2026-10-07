@@ -6,6 +6,11 @@
     "lib": ["ES2022", "DOM"],
     "types": ["firefox-webext-browser", "node", "vite/client"],
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@platform/icons": ["./src/platform/firefox/icons.ts"],
+      "@platform/background": ["./src/platform/firefox/background.ts"]
+    },
     "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
     "strict": true,

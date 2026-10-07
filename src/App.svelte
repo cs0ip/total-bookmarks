@@ -4,10 +4,10 @@
   import LanguagePicker from './components/LanguagePicker.svelte';
   import BookmarkPanels from './components/BookmarkPanels.svelte';
   import { PARENT_FOLDER_ITEM_ID } from './components/BookmarkList.svelte';
-  import { ICON_ORIGINS } from './icons/protocol';
+  import { iconOrigins } from '@platform/icons';
+  import { getTree, getChildren, createBookmark, moveBookmark, isProtectedItem, type BookmarkNode } from './platform/bookmarks';
   import { planMoves, type CreateRequest, type ItemRequest, type MoveRequest } from './bookmarks/move';
 
-  type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
   type Side = 0 | 1;
   type PaneState = { folderId: string; selectedId: string };
   type FocusPosition = PaneState & { index: number };
@@ -28,11 +28,11 @@
   let iconAccessAllowed = $state<boolean | null>(null);
   let requestingIconAccess = $state(false);
   const manifest = browser.runtime.getManifest();
-  const iconManifestReady = ICON_ORIGINS.every((origin) => manifest.host_permissions?.includes(origin));
+  const iconManifestReady = iconOrigins.every((origin) => manifest.host_permissions?.includes(origin));
 
   async function checkIconAccess(): Promise<void> {
     try {
-      iconAccessAllowed = await browser.permissions.contains({ origins: ICON_ORIGINS });
+      iconAccessAllowed = iconOrigins.length === 0 || await browser.permissions.contains({ origins: iconOrigins });
     } catch (cause) {
       console.error('Failed to check host permissions', cause);
     }
@@ -42,7 +42,7 @@
     requestingIconAccess = true;
     try {
       // Call directly from the click handler to retain Firefox's user gesture.
-      iconAccessAllowed = await browser.permissions.request({ origins: ICON_ORIGINS });
+      iconAccessAllowed = await browser.permissions.request({ origins: iconOrigins });
     } catch (cause) {
       error = 'iconPermissionError';
       console.error('Failed to request favicon host permissions', cause);
@@ -88,7 +88,7 @@
     loading = true;
     error = '';
     try {
-      const tree = await browser.bookmarks.getTree();
+      const tree = await getTree();
       if (!isActive() || mutating) return;
       roots = tree;
       const index = new Map<string, BookmarkNode>();
@@ -147,7 +147,7 @@
     if (!source?.children || source.unmodifiable) return false;
     return request.ids.every((id) => {
       const item = findNode(id);
-      return item && item.parentId === request.sourceId && !item.unmodifiable && item.type !== 'separator';
+      return item && item.parentId === request.sourceId && !isProtectedItem(item) && item.type !== 'separator';
     });
   }
 
@@ -183,9 +183,9 @@
     let createdId: string | undefined;
     let failed = false;
     try {
-      const children = await browser.bookmarks.getChildren(request.parentId);
+      const children = await getChildren(request.parentId);
       const index = children.findIndex((item) => item.id === request.afterId) + 1;
-      const created = await browser.bookmarks.create({
+      const created = await createBookmark({
         parentId: request.parentId,
         index,
         type: request.type,
@@ -211,9 +211,9 @@
     error = '';
     let failed = false;
     try {
-      const items = await browser.bookmarks.getChildren(request.sourceId);
+      const items = await getChildren(request.sourceId);
       const selected = items.filter((item) => request.ids.includes(item.id));
-      if (selected.length !== new Set(request.ids).size || selected.some((item) => item.unmodifiable || item.type === 'separator')) {
+      if (selected.length !== new Set(request.ids).size || selected.some((item) => isProtectedItem(item) || item.type === 'separator')) {
         throw new Error('Selected bookmarks cannot be removed');
       }
       for (const item of selected) {
@@ -241,14 +241,14 @@
     let result: string[] = [];
     let failed = false;
     try {
-      const source = await browser.bookmarks.getChildren(request.sourceId);
-      const destination = request.sourceId === request.destinationId ? source : await browser.bookmarks.getChildren(request.destinationId);
-      if (source.some((item) => request.ids.includes(item.id) && (item.unmodifiable || item.type === 'separator'))) {
+      const source = await getChildren(request.sourceId);
+      const destination = request.sourceId === request.destinationId ? source : await getChildren(request.destinationId);
+      if (source.some((item) => request.ids.includes(item.id) && (isProtectedItem(item) || item.type === 'separator'))) {
         throw new Error('Selected bookmarks cannot be moved');
       }
       const plan = planMoves(source, destination, request);
       for (const move of plan.moves) {
-        await browser.bookmarks.move(move.id, { parentId: move.parentId, index: move.index });
+        await moveBookmark(move.id, { parentId: move.parentId, index: move.index });
         completed.push(move.id);
       }
       result = plan.ids;

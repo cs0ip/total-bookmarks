@@ -84,6 +84,9 @@
   "chooseLanguage": "Choose language",
   "language": "Language",
   "confirmDelete": "Delete the selected items?\nNumber of items: {count}.\nFolders and their contents will be deleted.",
-  "extensionDescription": "A two-pane Firefox bookmark manager.",
-  "openManager": "Open bookmark manager"
+  "extensionDescription": "A two-pane bookmark manager.",
+  "openManager": "Open bookmark manager",
+  "about": "About",
+  "closeAbout": "Close about window",
+  "author": "Author"
 }

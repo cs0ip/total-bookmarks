@@ -1,1 +1,8 @@
 @import "tailwindcss";
+
+/* Chrome injects unlayered font styles into extension pages. Keep this rule
+   outside @layer so the shared typography takes precedence in both browsers. */
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}

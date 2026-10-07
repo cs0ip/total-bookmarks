@@ -1,13 +1,20 @@
 {
   "name": "total-bookmarks",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite build --watch",
-    "build": "npm run check && vite build",
+    "dev": "vite build --mode firefox --watch",
+    "build": "npm run check && vite build --mode firefox && vite build --mode chrome",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test:i18n": "node --test tests/locales.test.mjs"
+    "test:i18n": "node --test tests/locales.test.mjs",
+    "dev:chrome": "vite build --mode chrome --watch",
+    "build:firefox": "npm run check && vite build --mode firefox",
+    "build:chrome": "npm run check && vite build --mode chrome",
+    "test:platform": "node --test tests/platform.test.mjs",
+    "package": "npm run build && python3 scripts/package.py",
+    "package:firefox": "npm run build:firefox && python3 scripts/package.py firefox",
+    "package:chrome": "npm run build:chrome && python3 scripts/package.py chrome"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

@@ -6,9 +6,10 @@
   import CommandBar, { type CommandBarButton } from './CommandBar.svelte';
   import CreateBookmarkDialog from './CreateBookmarkDialog.svelte';
   import KeyboardHelp from './KeyboardHelp.svelte';
+  import About from './About.svelte';
   import type { CreateRequest, ItemRequest, MoveRequest } from '../bookmarks/move';
 
-  type BookmarkNode = browser.bookmarks.BookmarkTreeNode;
+  import type { BookmarkNode } from '../platform/bookmarks';
   type Side = 0 | 1;
   type MoveDirection = 'up' | 'down' | 'left' | 'right';
   type PanelCommand = CommandBarButton & { key?: string; ctrlKey?: boolean; shiftKey?: boolean; description?: string };
@@ -65,7 +66,7 @@
   let panels: HTMLDivElement;
   let activeSide = $state<Side>(0);
   let mutating = $state(false);
-  let helpOpen = $state(false);
+  let popupOpen = $state<'help' | 'about' | null>(null);
   let creation = $state<{ kind: 'bookmark' | 'folder'; side: Side; parentId: string; afterId: string; createdId?: string }>();
   const commandsDisabled = $derived(loading || mutating || creation !== undefined);
   let leftShare = $state(0.5);
@@ -135,9 +136,18 @@
       icon: '?',
       separatorBefore: true,
       popupId: 'keyboard-help',
-      expanded: helpOpen,
+      expanded: popupOpen === 'help',
       disabled: commandsDisabled,
-      action: () => { if (helpOpen) void closeHelp(); else { cancelItemDrag(); helpOpen = true; } }
+      action: () => togglePopup('help')
+    },
+    {
+      title: $t('about'),
+      imageSrc: './icons/logo.svg',
+      separatorBefore: true,
+      popupId: 'about-app',
+      expanded: popupOpen === 'about',
+      disabled: commandsDisabled,
+      action: () => togglePopup('about')
     }
   ]);
   const commandShortcuts = $derived(commands.filter((command) => command.key).map((command) => ({
@@ -145,8 +155,13 @@
     description: command.description ?? command.title
   })));
 
-  async function closeHelp(): Promise<void> {
-    helpOpen = false;
+  function togglePopup(popup: 'help' | 'about'): void {
+    if (popupOpen === popup) void closePopup();
+    else { cancelItemDrag(); popupOpen = popup; }
+  }
+
+  async function closePopup(): Promise<void> {
+    popupOpen = null;
     await tick();
     if (document.hasFocus() && paneSideFor(document.activeElement) === undefined) focusActivePane(false);
   }
@@ -429,7 +444,7 @@
   }
 
   function focusActivePane(reveal = true): void {
-    if (creation || helpOpen || externalPopupOpen) return;
+    if (creation || popupOpen || externalPopupOpen) return;
     lists[activeSide]?.focusSelected(reveal);
   }
 
@@ -501,13 +516,14 @@
     function onDocumentMousedown(event: MouseEvent): void {
       if (creation) return;
       if (isLanguagePickerTarget(event.target)) {
-        if (helpOpen) void closeHelp();
+        if (popupOpen) void closePopup();
         return;
       }
-      if (helpOpen) {
-        if (event.target instanceof Element && event.target.closest('[data-keyboard-help]')) return;
-        if (event.target instanceof Element && event.target.closest('button[aria-controls="keyboard-help"]')) { event.preventDefault(); return; }
-        void closeHelp();
+      if (popupOpen) {
+        const id = popupOpen === 'help' ? 'keyboard-help' : 'about-app';
+        if (event.target instanceof Element && event.target.closest(`#${id}`)) return;
+        if (event.target instanceof Element && event.target.closest(`button[aria-controls="${id}"]`)) { event.preventDefault(); return; }
+        void closePopup();
       }
       if (event.button !== 0) return;
       const side = paneSideFor(event.target);
@@ -526,7 +542,7 @@
     }
 
     function onDocumentKeydown(event: KeyboardEvent): void {
-      if (creation || helpOpen || externalPopupOpen || event.isComposing || event.defaultPrevented) return;
+      if (creation || popupOpen || externalPopupOpen || event.isComposing || event.defaultPrevented) return;
       if (!event.altKey && !event.metaKey) {
         // Physical letter keys keep the shortcuts available in other layouts.
         const key = event.code.startsWith('Key') ? event.code.slice(3).toLowerCase() : event.key.toLowerCase();
@@ -622,7 +638,7 @@
         markedIds={markedIdsFor(pane)}
         parentFolderId={pane.folder?.parentId}
         {loading}
-        active={activeSide === pane.side && !creation && !helpOpen && !externalPopupOpen}
+        active={activeSide === pane.side && !creation && !popupOpen && !externalPopupOpen}
         dropMarkerTop={dropTarget?.side === pane.side ? dropTarget.top : undefined}
         draggedIds={itemDrag?.side === pane.side ? itemDrag.ids : undefined}
         onActivate={() => (activeSide = pane.side)}
@@ -671,7 +687,8 @@
 
 <div class="relative shrink-0">
   <CommandBar buttons={commands} label={$t('moveLabel')} />
-  {#if helpOpen}<KeyboardHelp commands={commandShortcuts} onClose={() => void closeHelp()} />{/if}
+  {#if popupOpen === 'help'}<KeyboardHelp commands={commandShortcuts} onClose={() => void closePopup()} />{/if}
+  {#if popupOpen === 'about'}<About onClose={() => void closePopup()} />{/if}
 </div>
 
 {#if creation}
