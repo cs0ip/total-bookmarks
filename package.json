@@ -13,9 +13,9 @@
     "build:firefox": "npm run check && vite build --mode firefox",
     "build:chrome": "npm run check && vite build --mode chrome",
     "test:platform": "node --test tests/platform.test.mjs",
-    "package": "npm run build && python3 scripts/package.py",
-    "package:firefox": "npm run build:firefox && python3 scripts/package.py firefox",
-    "package:chrome": "npm run build:chrome && python3 scripts/package.py chrome"
+    "package": "python3 scripts/clean.py && npm run build && python3 scripts/package.py",
+    "package:firefox": "python3 scripts/clean.py firefox && npm run build:firefox && python3 scripts/package.py firefox",
+    "package:chrome": "python3 scripts/clean.py chrome && npm run build:chrome && python3 scripts/package.py chrome"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

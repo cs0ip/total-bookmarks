@@ -23,7 +23,7 @@
 - Используются Node.js и npm.
 - Установить зависимости: `npm install`.
 - Проверить типы: `npm run check`. Собрать проект: `npm run build`.
-- `npm run package` пересобирает оба браузера и запускает `scripts/package.py` (Python 3, только стандартная библиотека); `package:firefox`/`package:chrome` собирают и упаковывают один. Архивы находятся в `dist/packages/total-bookmarks-{manifest.version}-{browser}.zip`, с `manifest.json` в корне. В архив входит только соответствующий `dist/{browser}/`, а не весь `dist/`. Упаковка не подписывает расширения и не публикует их.
+- `npm run package` сначала полностью удаляет `dist/` через `scripts/clean.py`, затем пересобирает оба браузера и запускает `scripts/package.py` (Python 3, только стандартная библиотека). `package:firefox`/`package:chrome` предварительно удаляют только `dist/{browser}/` и `dist/packages/total-bookmarks-*-{browser}.zip`, затем собирают и упаковывают один браузер, сохраняя результаты другого. Очистка выполняется до проверки типов; ошибка очистки или сборки останавливает цепочку команд. Архивы находятся в `dist/packages/total-bookmarks-{manifest.version}-{browser}.zip`, с `manifest.json` в корне. В архив входит только соответствующий `dist/{browser}/`, а не весь `dist/`. Упаковка не подписывает расширения и не публикует их.
 - Для временной установки: открыть в Firefox `about:debugging#/runtime/this-firefox`, нажать **Загрузить временное дополнение** и выбрать `dist/firefox/manifest.json`.
 
 ## Слой совместимости
