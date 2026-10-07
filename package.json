@@ -1,7 +1,7 @@
 {
   "name": "total-bookmarks",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "license": "MPL-2.0",
   "type": "module",
   "scripts": {
@@ -13,9 +13,10 @@
     "build:firefox": "npm run check && vite build --mode firefox",
     "build:chrome": "npm run check && vite build --mode chrome",
     "test:platform": "node --test tests/platform.test.mjs",
-    "package": "python3 scripts/clean.py && npm run build && python3 scripts/package.py",
-    "package:firefox": "python3 scripts/clean.py firefox && npm run build:firefox && python3 scripts/package.py firefox",
-    "package:chrome": "python3 scripts/clean.py chrome && npm run build:chrome && python3 scripts/package.py chrome"
+    "package": "python3 scripts/clean.py && npm run build && python3 scripts/package.py && npm run package:source",
+    "package:firefox": "python3 scripts/clean.py firefox && python3 scripts/clean.py source && npm run build:firefox && python3 scripts/package.py firefox && npm run package:source",
+    "package:chrome": "python3 scripts/clean.py chrome && npm run build:chrome && python3 scripts/package.py chrome",
+    "package:source": "python3 scripts/clean.py source && python3 scripts/package-source.py"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

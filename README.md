@@ -21,14 +21,17 @@ npm run build
 npm run package
 ```
 
-Результат для версии `1.0.0`:
+Результат для версии `1.0.1`:
 
-- `dist/packages/total-bookmarks-1.0.0-firefox.zip`
-- `dist/packages/total-bookmarks-1.0.0-chrome.zip`
+- `dist/packages/total-bookmarks-1.0.1-firefox.zip`
+- `dist/packages/total-bookmarks-1.0.1-chrome.zip`
+- `dist/packages/total-bookmarks-1.0.1-source.zip`
 
 Упаковать только один браузер: `npm run package:firefox` или `npm run package:chrome`. Эти команды предварительно удаляют сборку и ZIP-архивы выбранного браузера, сохраняя результаты другого браузера. Версия в имени архива берётся из манифеста. Внутри каждого архива `manifest.json` лежит в корне, без внешней папки.
 
 Firefox-архив можно отправить в [Mozilla Add-ons для подписи](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/), выбрав публикацию в каталоге либо самостоятельное распространение (unlisted). Для постоянной установки в обычный Firefox нужен полученный подписанный `.xpi`; упаковка сама по себе подпись не создаёт.
+
+Архив `source.zip` загрузите в отдельное поле исходного кода Mozilla. Он создаётся при `npm run package` и `npm run package:firefox`; отдельно его можно собрать командой `npm run package:source`, сохранив готовые дистрибутивы. В архив входят исходники, lock-файл, ресурсы, скрипты и отдельные английские пошаговые инструкции сборки для [Firefox](docs/build/firefox.md) и [Chrome](docs/build/chrome.md). Корневой `README.md` архива содержит ссылки на обе инструкции. Зависимости `node_modules`, готовые сборки и служебные файлы Git в него не включаются.
 
 Chrome-архив подходит для [загрузки в Chrome Web Store](https://developer.chrome.com/docs/webstore/prepare). Для локальной проверки распакуйте его и загрузите полученную папку через **Загрузить распакованное расширение**, как описано ниже.
 
