@@ -70,6 +70,8 @@
   "navParentHelp": "Go to the parent folder.",
   "space": "Space",
   "selectToggleHelp": "Toggle the focused item's selection without moving focus.",
+  "shiftClick": "Shift+click",
+  "selectClickRangeHelp": "Toggle each item's selection from the previously focused row to the clicked row, including both endpoints. Keep selections outside the range.",
   "selectNextHelp": "Toggle the focused item's selection and focus the next item.",
   "selectPreviousHelp": "Toggle the focused item's selection and focus the previous item.",
   "selectFirstHelp": "Toggle selection from the focused item through the first item, inclusive, and focus the first item.",

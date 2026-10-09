@@ -405,6 +405,63 @@ export async function runBookmarkTests() {
       pressArrow('End', false, true);
       await untilFocused(navigationRows.length - 1);
       assert(!navigationChecks.at(-2).checked && navigationChecks.at(-1).checked && navigationList.querySelectorAll('input:checked').length === 17, 'A mixed range updates both marks even when the total selected count remains unchanged');
+
+      for (const input of navigationChecks.filter((input) => input?.checked)) {
+        clickCheckbox(input);
+        await until(() => !input.checked);
+      }
+      await until(() => !navigationList.querySelector('input:checked'));
+      const shiftClick = (target, button = 0) => {
+        target.dispatchEvent(new MouseEvent('mousedown', { button, shiftKey: true, bubbles: true, cancelable: true }));
+        target.dispatchEvent(new MouseEvent('mouseup', { button, shiftKey: true, bubbles: true, cancelable: true }));
+        target.dispatchEvent(new MouseEvent('click', { button, shiftKey: true, bubbles: true, cancelable: true }));
+      };
+      clickCheckbox(navigationChecks.at(-1));
+      navigationRows[1].focus({ preventScroll: true });
+      await untilFocused(1);
+      shiftClick(navigationRows[5]);
+      await untilFocused(5);
+      assert([1, 3, 4, 5].every((index) => navigationChecks[index].checked) && navigationChecks.at(-1).checked && navigationList.querySelectorAll('input:checked').length === 5, 'Shift-click selects an inclusive range containing folders and bookmarks, skips separators, and preserves outside marks');
+      shiftClick(navigationRows[1]);
+      await untilFocused(1);
+      assert(navigationList.querySelectorAll('input:checked').length === 1 && navigationChecks.at(-1).checked, 'Repeating Shift-click over the same range in reverse removes its marks and preserves outside marks');
+      shiftClick(navigationRows[5]);
+      await untilFocused(5);
+      assert([1, 3, 4, 5].every((index) => navigationChecks[index].checked), 'Shift-click restores the range after its marks were removed');
+      shiftClick(navigationRows[3]);
+      await untilFocused(3);
+      assert(navigationChecks[1].checked && [3, 4, 5].every((index) => !navigationChecks[index].checked), 'An upward Shift-click toggles both boundaries and all intermediate items off');
+      shiftClick(navigationRows[3]);
+      await until(() => navigationChecks[3].checked);
+      shiftClick(navigationRows[3]);
+      await until(() => !navigationChecks[3].checked);
+      assert(document.activeElement === navigationRows[3], 'Shift-clicking the focused row twice toggles its mark on and off without moving focus');
+      shiftClick(navigationChecks[7]);
+      await untilFocused(7);
+      assert(navigationChecks.slice(3, 8).every((input) => input.checked), 'Shift-clicking a checkbox selects the inclusive range without unchecking its endpoint');
+      shiftClick(navigationRows[9].parentElement);
+      await untilFocused(9);
+      assert(!navigationChecks[7].checked && navigationChecks[8].checked && navigationChecks[9].checked, 'Shift-clicking row padding toggles an already marked boundary off and unmarked rows on');
+      const mixedCount = navigationList.querySelectorAll('input:checked').length;
+      shiftClick(navigationRows[10]);
+      await untilFocused(10);
+      assert(!navigationChecks[9].checked && navigationChecks[10].checked && navigationList.querySelectorAll('input:checked').length === mixedCount, 'Shift-click updates a mixed range even when the selected count stays the same');
+      const countBeforeSecondaryClick = navigationList.querySelectorAll('input:checked').length;
+      shiftClick(navigationRows[12], 2);
+      assert(navigationList.querySelectorAll('input:checked').length === countBeforeSecondaryClick && !navigationChecks[12].checked, 'Shift with the secondary mouse button does not select a range');
+      for (const input of navigationChecks.filter((input) => input?.checked)) {
+        clickCheckbox(input);
+        await until(() => !input.checked);
+      }
+      await until(() => !navigationList.querySelector('input:checked'));
+      navigationRows[3].focus({ preventScroll: true });
+      await untilFocused(3);
+      shiftClick(navigationRows[0]);
+      await untilFocused(0);
+      assert(navigationChecks[1].checked && navigationChecks[3].checked && navigationList.querySelectorAll('input:checked').length === 2, 'The parent entry can end an inclusive range without marking the parent or separator');
+      shiftClick(navigationRows[2]);
+      await untilFocused(2);
+      assert(!navigationChecks[1].checked && navigationChecks[3].checked && navigationList.querySelectorAll('input:checked').length === 1, 'A separator can end a range and toggle marked folders off without receiving a mark');
     } finally {
       if (originalListStyle === null) navigationList.removeAttribute('style');
       else navigationList.setAttribute('style', originalListStyle);

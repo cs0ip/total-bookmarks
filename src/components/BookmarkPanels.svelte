@@ -79,7 +79,7 @@
   let suppressClick = false;
   const folderStates = [new SvelteMap<string, FolderState>(), new SvelteMap<string, FolderState>()];
   const emptyMarkedIds = new Set<string>();
-  const lists: ({ focusSelected: (reveal?: boolean) => void; insertionAt: (y: number) => { afterId?: string; top: number } } | undefined)[] = [];
+  const lists: ({ focusSelected: (reveal?: boolean) => void; selectRangeTo: (id: string) => void; insertionAt: (y: number) => { afterId?: string; top: number } } | undefined)[] = [];
   const commands: PanelCommand[] = $derived([
     moveButton('up', $t('moveUp')),
     moveButton('down', $t('moveDown')),
@@ -362,7 +362,7 @@
 
   function beginItemDrag(event: PointerEvent): void {
     suppressClick = false;
-    if (!event.isPrimary || event.button !== 0 || event.pointerType !== 'mouse' || loading || mutating || drag) return;
+    if (!event.isPrimary || event.button !== 0 || event.shiftKey || event.pointerType !== 'mouse' || loading || mutating || drag) return;
     const side = paneSideFor(event.target);
     if (side === undefined || !(event.target instanceof Element) || event.target.closest('input')) return;
     const row = event.target.closest<HTMLElement>('[data-bookmark-row]');
@@ -530,10 +530,12 @@
       if (side !== undefined) activeSide = side;
       // Preserve focus without cancelling the subsequent button click.
       event.preventDefault();
-      if (side !== undefined && event.target instanceof Element && !event.target.closest('input[type="checkbox"]')) {
-        const row = event.target.closest('[data-bookmark-row]');
+      if (side !== undefined && event.target instanceof Element && (event.shiftKey || !event.target.closest('input[type="checkbox"]'))) {
+        const row = event.target.closest<HTMLElement>('[data-bookmark-row]');
         const button = row?.querySelector<HTMLButtonElement>('button[aria-pressed]');
         if (button) {
+          // Capture the old focused row before mousedown transfers DOM focus.
+          if (event.shiftKey && row?.dataset.bookmarkId) lists[side]?.selectRangeTo(row.dataset.bookmarkId);
           button.focus({ preventScroll: true });
           return;
         }
