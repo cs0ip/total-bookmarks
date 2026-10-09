@@ -393,6 +393,24 @@ def run():
                                         {'type': 'pointerUp', 'button': 0}
                                     ])
                                     result['results'].append(pointer_script('return await window.pointerTests.verify(arguments[0], arguments[1]);', [side, kind]))
+                            for side in [0, 1]:
+                                for kind in ['row', 'checkbox', 'gap']:
+                                    for repeated in [False, True]:
+                                        point = pointer_script('return await window.pointerTests.rangePosition(arguments[0], arguments[1], arguments[2]);', [side, kind, repeated])
+                                        command('WebDriver:PerformActions', {'actions': [{
+                                            'type': 'key', 'id': 'range-shift', 'actions': [{'type': 'keyDown', 'value': '\ue008'}]
+                                        }]})
+                                        try:
+                                            pointer_actions([
+                                                {'type': 'pointerMove', **point, 'duration': 0},
+                                                {'type': 'pointerDown', 'button': 0},
+                                                {'type': 'pointerUp', 'button': 0}
+                                            ])
+                                        finally:
+                                            command('WebDriver:PerformActions', {'actions': [{
+                                                'type': 'key', 'id': 'range-shift', 'actions': [{'type': 'keyUp', 'value': '\ue008'}]
+                                            }]})
+                                        result['results'].append(pointer_script('return await window.pointerTests.verifyRange(arguments[0], arguments[1]);', [side, kind]))
                             wheel = pointer_script('return await window.pointerTests.reset(0);')
                             command('WebDriver:PerformActions', {'actions': [{
                                 'type': 'wheel', 'id': 'language-list-wheel', 'actions': [{

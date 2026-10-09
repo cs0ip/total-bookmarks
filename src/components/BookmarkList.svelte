@@ -37,7 +37,11 @@
 
   onMount(() => {
     list.addEventListener('keydown', onListKeydown);
-    return () => list.removeEventListener('keydown', onListKeydown);
+    list.addEventListener('click', onListClick, true);
+    return () => {
+      list.removeEventListener('keydown', onListKeydown);
+      list.removeEventListener('click', onListClick, true);
+    };
   });
 
   $effect(() => {
@@ -69,6 +73,22 @@
       changed = true;
     }
     if (changed) onMarkedIdsChange(next);
+  }
+
+  export function selectRangeTo(id: string): void {
+    if (loading) return;
+    const from = rows.findIndex((item) => item.id === activeSelectedId);
+    const to = rows.findIndex((item) => item.id === id);
+    if (from < 0 || to < 0) return;
+    toggleRange(from, to);
+    onSelect(id);
+  }
+
+  function onListClick(event: MouseEvent): void {
+    if (event.button !== 0 || !event.shiftKey || !(event.target instanceof Element) || !event.target.closest('input[type="checkbox"]')) return;
+    // Mousedown already toggled the range; do not toggle its endpoint again.
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   $effect(() => {

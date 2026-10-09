@@ -70,6 +70,8 @@
   "navParentHelp": "进入上级文件夹。",
   "space": "空格",
   "selectToggleHelp": "切换焦点项目的选中状态，并保持焦点位置。",
+  "shiftClick": "Shift+单击",
+  "selectClickRangeHelp": "切换从先前焦点行到单击行之间每个项目的选中状态（含两端），保留范围外的选中项。",
   "selectNextHelp": "切换焦点项目的选中状态，并将焦点移到下一个项目。",
   "selectPreviousHelp": "切换焦点项目的选中状态，并将焦点移到上一个项目。",
   "selectFirstHelp": "切换从焦点项目到第一个项目（含两端）的选中状态，并将焦点移到第一个项目。",

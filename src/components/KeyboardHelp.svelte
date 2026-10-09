@@ -15,6 +15,7 @@
     { keys: 'Backspace', description: $t('navParentHelp') }
   ]);
   const selection: Shortcut[] = $derived([
+    { keys: $t('shiftClick'), description: $t('selectClickRangeHelp') },
     { keys: $t('space'), description: $t('selectToggleHelp') },
     { keys: 'Insert / Shift+↓', description: $t('selectNextHelp') },
     { keys: 'Shift+↑', description: $t('selectPreviousHelp') },
