@@ -29,9 +29,6 @@ the directory containing this README and package.json.
 
 def package_source():
     metadata = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))
-    manifest = json.loads((ROOT / 'build/manifest.firefox.json').read_text(encoding='utf-8'))
-    if metadata['version'] != manifest['version']:
-        raise RuntimeError('Package and manifest versions must match before packaging sources')
     files = [ROOT / name for name in SOURCE_FILES]
     for name in SOURCE_DIRECTORIES:
         directory = ROOT / name

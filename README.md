@@ -21,13 +21,15 @@ npm run build
 npm run package
 ```
 
-Результат для версии `1.0.1`:
+Результат (`<version>` берётся из `package.json`):
 
-- `dist/packages/total-bookmarks-1.0.1-firefox.zip`
-- `dist/packages/total-bookmarks-1.0.1-chrome.zip`
-- `dist/packages/total-bookmarks-1.0.1-source.zip`
+- `dist/packages/total-bookmarks-<version>-firefox.zip`
+- `dist/packages/total-bookmarks-<version>-chrome.zip`
+- `dist/packages/total-bookmarks-<version>-source.zip`
 
-Упаковать только один браузер: `npm run package:firefox` или `npm run package:chrome`. Эти команды предварительно удаляют сборку и ZIP-архивы выбранного браузера, сохраняя результаты другого браузера. Версия в имени архива берётся из манифеста. Внутри каждого архива `manifest.json` лежит в корне, без внешней папки.
+Упаковать только один браузер: `npm run package:firefox` или `npm run package:chrome`. Эти команды предварительно удаляют сборку и ZIP-архивы выбранного браузера, сохраняя результаты другого браузера. Версия из `package.json` автоматически попадает в манифесты обоих браузеров и имена архивов. Внутри каждого архива `manifest.json` лежит в корне, без внешней папки.
+
+Для следующего выпуска выполните `npm version patch --no-git-tag-version`: npm увеличит последнюю часть версии и синхронизирует `package-lock.json`, без создания коммита и тега. Затем запустите `npm run package`.
 
 Firefox-архив можно отправить в [Mozilla Add-ons для подписи](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/), выбрав публикацию в каталоге либо самостоятельное распространение (unlisted). Для постоянной установки в обычный Firefox нужен полученный подписанный `.xpi`; упаковка сама по себе подпись не создаёт.
 

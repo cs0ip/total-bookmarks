@@ -78,9 +78,9 @@ The results are:
 - `dist/packages/total-bookmarks-<version>-firefox.zip`: the extension package.
 - `dist/packages/total-bookmarks-<version>-source.zip`: the accompanying sources.
 
-The version is read from the project metadata and Firefox manifest. `manifest.json`
-is at the root of the extension package. The package is unsigned; signing is
-performed by Mozilla.
+The version in `package.json` is the single source for the generated Firefox
+manifest and archive names. `manifest.json` is at the root of the extension
+package. The package is unsigned; signing is performed by Mozilla.
 
 Compare the extracted contents of the generated Firefox ZIP with the submitted
 extension ZIP. ZIP timestamps and compression metadata are not part of this

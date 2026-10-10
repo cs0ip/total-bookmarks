@@ -86,10 +86,12 @@ test('Chrome favicon URLs use the local cache and encode the complete bookmark U
 });
 
 test('Both packages contain valid platform manifests, localized metadata, and icon assets', () => {
+  const metadata = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)));
   for (const target of ['firefox', 'chrome']) {
     const dir = new URL(`../dist/${target}/`, import.meta.url);
     const manifest = JSON.parse(readFileSync(new URL('manifest.json', dir)));
     assert.equal(manifest.manifest_version, 3);
+    assert.equal(manifest.version, metadata.version);
     assert.equal(manifest.default_locale, 'en');
     for (const path of Object.values(manifest.icons)) assert.ok(existsSync(new URL(path, dir)), path);
     for (const lang of ['en', 'ru', 'zh_CN']) assert.ok(existsSync(new URL(`_locales/${lang}/messages.json`, dir)));

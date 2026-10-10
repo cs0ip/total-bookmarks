@@ -81,10 +81,11 @@ The results are:
 - `dist/chrome/`: the complete unpacked Chrome extension.
 - `dist/packages/total-bookmarks-<version>-chrome.zip`: the extension package.
 
-The version is read from the manifest generated using `build/manifest.firefox.json`
-and the Chrome overrides in `build/manifest.ts`. `manifest.json` is at the root
-of the Chrome ZIP. The command does not publish the extension to Chrome Web Store
-or create a signed CRX.
+The version in `package.json` is the single source for the generated Chrome
+manifest and archive names. Other manifest metadata comes from
+`build/manifest.firefox.json` and the Chrome overrides in `build/manifest.ts`.
+`manifest.json` is at the root of the Chrome ZIP. The command does not publish
+the extension to Chrome Web Store or create a signed CRX.
 
 To verify reproducibility, compare the extracted contents of the generated Chrome
 ZIP with the release's Chrome ZIP. ZIP timestamps and compression metadata are

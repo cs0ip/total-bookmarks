@@ -20,6 +20,7 @@ export default defineConfig(({ mode }) => {
     plugins: [tailwindcss(), svelte(), {
       name: 'extension-metadata',
       buildStart() {
+        this.addWatchFile(resolve(import.meta.dirname, 'package.json'));
         this.addWatchFile(resolve(import.meta.dirname, 'LICENSE'));
         this.addWatchFile(resolve(import.meta.dirname, 'build/manifest.firefox.json'));
         for (const language of ['en', 'ru', 'zh']) this.addWatchFile(resolve(import.meta.dirname, `src/locales/${language}.json`));
