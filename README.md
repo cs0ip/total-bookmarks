@@ -1,79 +1,82 @@
 # Total Bookmarks
 
-Total Bookmarks — двухпанельный менеджер закладок Firefox и Chrome в духе Total Commander. Он помогает одновременно просматривать разные папки и открывать сохранённые страницы. Интерфейс доступен на английском, русском и китайском языках: язык определяется автоматически, а изменить его можно кнопкой с глобусом справа вверху.
+Total Bookmarks is a dual-pane bookmark manager for Firefox and Chrome, inspired by Total Commander. It lets you browse different folders side by side and open saved pages.
 
-## Сборка
+- [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/total-bookmarks/)
+- [Chrome Web Store](https://chromewebstore.google.com/detail/total-bookmarks/lcnkhfjmdkbjinejjlkmejkimielebai)
 
-Нужны Node.js и npm. В каталоге проекта выполните:
+## Building
+
+You need Node.js and npm. Run the following commands in the project directory:
 
 ```sh
 npm install
 npm run build
 ```
 
-Готовые расширения находятся в `dist/firefox/` и `dist/chrome/`. Для сборки одного браузера используйте `npm run build:firefox` или `npm run build:chrome`. Отдельная проверка типов: `npm run check`.
+The built extensions are in `dist/firefox/` and `dist/chrome/`. To build for a single browser, use `npm run build:firefox` or `npm run build:chrome`. To run type checking separately, use `npm run check`.
 
-## Упаковка дистрибутивов
+## Packaging
 
-Для упаковки дополнительно нужен Python 3. Команда сначала полностью очищает `dist/`, затем пересобирает обе версии и создаёт ZIP-архивы:
+Packaging also requires Python 3. This command first removes all contents of `dist/`, then rebuilds both versions and creates ZIP archives:
 
 ```sh
 npm run package
 ```
 
-Результат (`<version>` берётся из `package.json`):
+Output (`<version>` comes from `package.json`):
 
 - `dist/packages/total-bookmarks-<version>-firefox.zip`
 - `dist/packages/total-bookmarks-<version>-chrome.zip`
 - `dist/packages/total-bookmarks-<version>-source.zip`
 
-Упаковать только один браузер: `npm run package:firefox` или `npm run package:chrome`. Эти команды предварительно удаляют сборку и ZIP-архивы выбранного браузера, сохраняя результаты другого браузера. Версия из `package.json` автоматически попадает в манифесты обоих браузеров и имена архивов. Внутри каждого архива `manifest.json` лежит в корне, без внешней папки.
+To package for a single browser, use `npm run package:firefox` or `npm run package:chrome`. These commands first remove the build and ZIP archives for the selected browser, preserving the other browser's output. The version from `package.json` is automatically included in both browser manifests and archive names. Each browser archive has `manifest.json` at its root, with no enclosing folder.
 
-Для следующего выпуска выполните `npm version patch --no-git-tag-version`: npm увеличит последнюю часть версии и синхронизирует `package-lock.json`, без создания коммита и тега. Затем запустите `npm run package`.
+For the next release, run `npm version patch --no-git-tag-version`: npm increments the patch version and synchronizes `package-lock.json` without creating a commit or tag. Then run `npm run package`.
 
-Firefox-архив можно отправить в [Mozilla Add-ons для подписи](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/), выбрав публикацию в каталоге либо самостоятельное распространение (unlisted). Для постоянной установки в обычный Firefox нужен полученный подписанный `.xpi`; упаковка сама по себе подпись не создаёт.
+You can submit the Firefox archive to [Mozilla Add-ons for signing](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/), choosing either a store listing or self-distribution (unlisted). Permanent installation in standard Firefox requires the resulting signed `.xpi` file; packaging alone does not sign the extension.
 
-Архив `source.zip` загрузите в отдельное поле исходного кода Mozilla. Он создаётся при `npm run package` и `npm run package:firefox`; отдельно его можно собрать командой `npm run package:source`, сохранив готовые дистрибутивы. В архив входят исходники, lock-файл, ресурсы, скрипты и отдельные английские пошаговые инструкции сборки для [Firefox](docs/build/firefox.md) и [Chrome](docs/build/chrome.md). Корневой `README.md` архива содержит ссылки на обе инструкции. Зависимости `node_modules`, готовые сборки и служебные файлы Git в него не включаются.
+Upload the `source.zip` archive to Mozilla's separate source code field. It is created by `npm run package` and `npm run package:firefox`; you can also create it separately with `npm run package:source`, preserving the packaged extensions. The archive includes source code, the lock file, assets, scripts, and separate step-by-step build instructions in English for [Firefox](docs/build/firefox.md) and [Chrome](docs/build/chrome.md). The archive's root `README.md` links to both guides. Dependencies in `node_modules`, built extensions, and Git metadata are excluded.
 
-Chrome-архив подходит для [загрузки в Chrome Web Store](https://developer.chrome.com/docs/webstore/prepare). Для локальной проверки распакуйте его и загрузите полученную папку через **Загрузить распакованное расширение**, как описано ниже.
+The Chrome archive is suitable for [uploading to the Chrome Web Store](https://developer.chrome.com/docs/webstore/prepare). To test it locally, extract it and load the resulting folder using **Load unpacked**, as described below.
 
-## Установка и запуск
+## Installing and running
 
 ### Firefox
 
-1. Откройте `about:debugging#/runtime/this-firefox`.
-2. Нажмите **Загрузить временное дополнение** и выберите `dist/firefox/manifest.json`.
-3. Нажмите кнопку Total Bookmarks на панели браузера — менеджер откроется во вкладке.
-4. Если появилась кнопка **Разрешить загрузку иконок**, нажмите её и подтвердите доступ к сайтам в запросе Firefox.
+1. Open `about:debugging#/runtime/this-firefox`.
+2. Click **Load Temporary Add-on** and select `dist/firefox/manifest.json`.
+3. Click the Total Bookmarks button on the browser toolbar to open the manager in a tab.
+4. If the **Allow site icon downloads** button appears, click it and confirm website access in the Firefox permission prompt.
 
-Временное дополнение нужно загружать заново после перезапуска Firefox.
+You need to load the temporary add-on again after restarting Firefox.
 
 ### Chrome
 
-Нужен Chrome 148 или новее. Для локальной проверки используется **распакованное расширение** — это аналог загрузки временного дополнения в Firefox, без публикации в Chrome Web Store.
+Chrome 148 or later is required. Local testing uses an **unpacked extension**, similar to loading a temporary add-on in Firefox, without publishing to the Chrome Web Store.
 
-1. В каталоге проекта выполните `npm install`, затем `npm run build:chrome`.
-2. Откройте `chrome://extensions` и включите **Режим разработчика** справа вверху.
-3. Нажмите **Загрузить распакованное расширение** (**Load unpacked**) и выберите каталог `dist/chrome/`, содержащий `manifest.json`. Выбирать нужно сам каталог, а не файл манифеста.
-4. В меню расширений (значок пазла на панели браузера) найдите Total Bookmarks и нажмите на него — менеджер откроется во вкладке. При желании закрепите кнопку значком булавки.
+1. Run `npm install`, then `npm run build:chrome` in the project directory.
+2. Open `chrome://extensions` and enable **Developer mode** in the top-right corner.
+3. Click **Load unpacked** and select the `dist/chrome/` directory containing `manifest.json`. Select the directory itself, rather than the manifest file.
+4. Find Total Bookmarks in the extensions menu (the puzzle icon on the browser toolbar) and click it to open the manager in a tab. You can also pin its button using the pin icon.
 
-Расширение остаётся установленным после перезапуска Chrome. Когда проверка закончена, нажмите **Удалить** на его карточке в `chrome://extensions`.
+The extension stays installed after restarting Chrome. When you have finished testing, click **Remove** on its card in `chrome://extensions`.
 
-Для проверки изменений запустите `npm run dev:chrome`. После пересборки нажмите значок **Перезагрузить** на карточке Total Bookmarks в `chrome://extensions`, затем обновите вкладку менеджера. Повторно выбирать каталог не требуется.
+To test changes, run `npm run dev:chrome`. After rebuilding, click the **Reload** icon on the Total Bookmarks card in `chrome://extensions`, then refresh the manager tab. You do not need to select the directory again.
 
-Ошибки интерфейса можно посмотреть через F12 во вкладке менеджера, ошибки фонового скрипта — по ссылке **service worker** на карточке расширения. Порядок загрузки и перезагрузки описан также в [официальной инструкции Chrome](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked).
+To inspect interface errors, press F12 in the manager tab. For background script errors, click the **service worker** link on the extension's card. Loading and reloading are also covered in the [official Chrome guide](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked).
 
-Иконки сайтов берутся из встроенного кеша Chrome. Если иконки в кеше нет, браузер показывает стандартную. Доступ ко всем сайтам для этой сборки не требуется.
+Site icons come from Chrome's built-in cache. If an icon is missing from the cache, the browser displays a default icon. This build does not require access to all websites.
 
-## Работа с изменениями
+## Development
 
-`npm run dev` автоматически пересобирает Firefox-версию, `npm run dev:chrome` — Chrome-версию. Эти команды не запускают сервер разработки.
+`npm run dev` automatically rebuilds the Firefox version when files change; `npm run dev:chrome` does the same for Chrome. These commands do not start a development server.
 
-После пересборки перезагрузите расширение на странице `about:debugging` или `chrome://extensions`, затем обновите вкладку менеджера. Это также применит изменения разрешений и фонового скрипта.
+After rebuilding, reload the extension on `about:debugging` or `chrome://extensions`, then refresh the manager tab. This also applies changes to permissions and the background script.
 
-## Проверки
+## Tests
 
-После сборки:
+After building, run:
 
 ```sh
 npm run test:i18n
@@ -82,8 +85,8 @@ python3 tests/run-site-icons.py
 CHROME_BIN=/path/to/chrome-for-testing/chrome node tests/run-chrome.mjs
 ```
 
-Браузерные проверки запускаются в отдельных временных профилях и не затрагивают пользовательские закладки. Для Chrome-проверок нужен Chrome for Testing либо Chromium с поддержкой загрузки расширений через командную строку.
+Browser tests run in separate temporary profiles and do not affect your bookmarks. Chrome tests require Chrome for Testing or a Chromium build that supports loading extensions from the command line.
 
-## Лицензия
+## License
 
-Исходный код Total Bookmarks распространяется под лицензией [Mozilla Public License 2.0](LICENSE) (MPL-2.0).
+The Total Bookmarks source code is licensed under the [Mozilla Public License 2.0](LICENSE) (MPL-2.0).
