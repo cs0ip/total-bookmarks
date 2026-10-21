@@ -5,8 +5,8 @@
   import BookmarkPanels from './components/BookmarkPanels.svelte';
   import { PARENT_FOLDER_ITEM_ID } from './components/BookmarkList.svelte';
   import { iconOrigins } from '@platform/icons';
-  import { getTree, getChildren, getBookmarkChangeEvents, createBookmark, moveBookmark, isProtectedItem, type BookmarkNode } from './platform/bookmarks';
-  import { planMoves, type CreateRequest, type ItemRequest, type MoveRequest } from './bookmarks/move';
+  import { getTree, getChildren, getBookmarkChangeEvents, createBookmark, moveBookmark, normalizeBookmark, isProtectedItem, type BookmarkNode } from './platform/bookmarks';
+  import { planMoves, type CreateRequest, type EditRequest, type ItemRequest, type MoveRequest } from './bookmarks/move';
 
   type Side = 0 | 1;
   type PaneState = { folderId: string; selectedId: string };
@@ -204,6 +204,36 @@
     return createdId;
   }
 
+  function canEditItem(id: string): boolean {
+    const item = findNode(id);
+    return !!item && canRemoveItems({ sourceId: item.parentId ?? '', ids: [id] });
+  }
+
+  async function editItem(request: EditRequest): Promise<boolean> {
+    if (!canEditItem(request.id) || !request.title.trim()) return false;
+    mutating = true;
+    error = '';
+    let saved = false;
+    try {
+      const [item] = (await browser.bookmarks.get(request.id)).map(normalizeBookmark);
+      if (!item || isProtectedItem(item) || item.type === 'separator') throw new Error('The bookmark item cannot be edited');
+      const isBookmark = item.type === 'bookmark';
+      if (isBookmark && !request.url?.trim()) throw new Error('A bookmark URL is required');
+      await browser.bookmarks.update(request.id, {
+        title: request.title.trim(),
+        ...(isBookmark ? { url: request.url!.trim() } : {})
+      });
+      saved = true;
+    } catch (cause) {
+      console.error('Failed to edit a bookmark item', cause);
+    } finally {
+      mutating = false;
+      await refreshAfterMutation();
+      if (!saved) error = 'editError';
+    }
+    return saved;
+  }
+
   async function removeItems(request: ItemRequest): Promise<void> {
     if (!canRemoveItems(request)) return;
     const positions = focusPositions();
@@ -377,5 +407,7 @@
     onRemoveItems={removeItems}
     {canCreateItem}
     onCreateItem={createItem}
+    {canEditItem}
+    onEditItem={editItem}
   />
 </main>

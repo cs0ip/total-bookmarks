@@ -19,6 +19,12 @@ export type CreateRequest = {
   url?: string;
 };
 
+export type EditRequest = {
+  id: string;
+  title: string;
+  url?: string;
+};
+
 export function planMoves(source: BookmarkNode[], destination: BookmarkNode[], request: MoveRequest) {
   const selected = new Set(request.ids);
   const ids = source.filter((item) => selected.has(item.id)).map((item) => item.id);

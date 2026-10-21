@@ -23,7 +23,7 @@ export async function runChromeTests() {
     return event;
   }
   async function focus(side, title) {
-    row(side, title).click();
+    row(side, title).focus();
     await until(() => document.activeElement === row(side, title));
   }
   await until(() => pane(0) && selected(0));
@@ -38,6 +38,7 @@ export async function runChromeTests() {
   assert(!document.body.textContent.includes('Разрешить загрузку иконок'), 'Chrome does not request website access for favicons');
   assert(selected(0) && selected(1), 'Chrome root folders render with a focused row in each pane');
   assert(command('Закладку').disabled, 'The browser root cannot receive newly created items');
+  assert(command('Редактировать').disabled, 'Chrome system folders cannot be edited');
   const [root] = await browser.bookmarks.getTree();
   const toolbar = root.children.find((item) => item.folderType === 'bookmarks-bar') ?? root.children[0];
   const fixtures = await browser.bookmarks.create({ parentId: toolbar.id, title: 'Chrome fixtures' });
@@ -51,8 +52,10 @@ export async function runChromeTests() {
       await until(() => row(side, fixtures.title));
       open(side, fixtures.title);
       await until(() => row(side, 'Chrome left'));
-      open(side, side === 0 ? 'Chrome left' : 'Chrome right');
     }
+    const { runBookmarkEditingTests } = await import('./bookmark-edit.browser.js');
+    results.push(...await runBookmarkEditingTests({ fixtures, left: pane(0), right: pane(1), until }));
+    for (const side of [0, 1]) open(side, side === 0 ? 'Chrome left' : 'Chrome right');
     await until(() => row(0, 'Chrome C') && selected(1));
     assert(pane(1).querySelectorAll('button[aria-pressed]').length === 1, 'An empty Chrome folder remains navigable through the parent row');
     assert(!command('Закладку').disabled, 'Chrome folders permit creation even without native children/type properties');

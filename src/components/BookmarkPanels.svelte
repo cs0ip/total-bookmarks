@@ -4,16 +4,19 @@
   import { SvelteMap } from 'svelte/reactivity';
   import BookmarkList from './BookmarkList.svelte';
   import CommandBar, { type CommandBarButton } from './CommandBar.svelte';
-  import CreateBookmarkDialog from './CreateBookmarkDialog.svelte';
+  import BookmarkPropertiesDialog from './BookmarkPropertiesDialog.svelte';
   import KeyboardHelp from './KeyboardHelp.svelte';
   import About from './About.svelte';
-  import type { CreateRequest, ItemRequest, MoveRequest } from '../bookmarks/move';
+  import type { CreateRequest, EditRequest, ItemRequest, MoveRequest } from '../bookmarks/move';
 
   import type { BookmarkNode } from '../platform/bookmarks';
   type Side = 0 | 1;
   type MoveDirection = 'up' | 'down' | 'left' | 'right';
   type PanelCommand = CommandBarButton & { key?: string; ctrlKey?: boolean; shiftKey?: boolean; description?: string };
   type FolderState = { markedIds: Set<string>; focusedId: string };
+  type PropertiesDialogState =
+    | { mode: 'create'; kind: 'bookmark' | 'folder'; side: Side; parentId: string; afterId: string; createdId?: string }
+    | { mode: 'edit'; kind: 'bookmark' | 'folder'; side: Side; id: string; title: string; url?: string };
   type ItemDrag = {
     pointerId: number;
     side: Side;
@@ -45,6 +48,8 @@
     onRemoveItems: (request: ItemRequest) => Promise<void>;
     canCreateItem: (parentId: string) => boolean;
     onCreateItem: (request: CreateRequest) => Promise<string | undefined>;
+    canEditItem: (id: string) => boolean;
+    onEditItem: (request: EditRequest) => Promise<boolean>;
   };
 
   let {
@@ -60,15 +65,17 @@
     canRemoveItems,
     onRemoveItems,
     canCreateItem,
-    onCreateItem
+    onCreateItem,
+    canEditItem,
+    onEditItem
   }: Props = $props();
 
   let panels: HTMLDivElement;
   let activeSide = $state<Side>(0);
   let mutating = $state(false);
   let popupOpen = $state<'help' | 'about' | null>(null);
-  let creation = $state<{ kind: 'bookmark' | 'folder'; side: Side; parentId: string; afterId: string; createdId?: string }>();
-  const commandsDisabled = $derived(loading || mutating || creation !== undefined);
+  let properties = $state<PropertiesDialogState>();
+  const commandsDisabled = $derived(loading || mutating || properties !== undefined);
   let leftShare = $state(0.5);
   let drag = $state<{ pointerId: number; offset: number } | null>(null);
   let pendingItemDrag: ItemDrag | undefined;
@@ -123,11 +130,19 @@
       action: () => openCreation('folder')
     },
     {
+      title: $t('edit'),
+      description: $t('editHelp'),
+      key: 'e',
+      ctrlKey: true,
+      separatorBefore: true,
+      disabled: commandsDisabled || !canEditItem((activeSide === 0 ? left : right).selectedId),
+      action: openEditing
+    },
+    {
       title: $t('delete'),
       description: $t('deleteHelp'),
       key: 'Delete',
       ctrlKey: false,
-      separatorBefore: true,
       disabled: commandsDisabled || !canRemoveItems(removeRequest()),
       action: removeSelected
     },
@@ -174,13 +189,21 @@
     const pane = activeSide === 0 ? left : right;
     if (commandsDisabled || !pane.folder || !canCreateItem(pane.folder.id)) return;
     cancelItemDrag();
-    creation = { kind, side: pane.side, parentId: pane.folder.id, afterId: pane.selectedId };
+    properties = { mode: 'create', kind, side: pane.side, parentId: pane.folder.id, afterId: pane.selectedId };
   }
 
-  async function closeCreation(): Promise<void> {
-    const destination = creation;
-    creation = undefined;
-    if (destination?.createdId) {
+  function openEditing(): void {
+    const pane = activeSide === 0 ? left : right;
+    const item = pane.items.find((item) => item.id === pane.selectedId);
+    if (commandsDisabled || !item || item.type === 'separator' || !canEditItem(item.id)) return;
+    cancelItemDrag();
+    properties = { mode: 'edit', kind: item.type, side: pane.side, id: item.id, title: item.title, url: item.url };
+  }
+
+  async function closeProperties(): Promise<void> {
+    const destination = properties;
+    properties = undefined;
+    if (destination?.mode === 'create' && destination.createdId) {
       const pane = destination.side === 0 ? left : right;
       if (pane.folder?.id === destination.parentId) selectItem(pane, destination.createdId);
     }
@@ -188,16 +211,18 @@
     focusActivePane();
   }
 
-  async function createItem(fields: { title: string; url?: string }): Promise<boolean> {
-    const destination = creation;
-    if (!destination || mutating || !canCreateItem(destination.parentId)) return false;
+  async function saveProperties(fields: { title: string; url?: string }): Promise<boolean> {
+    const destination = properties;
+    if (!destination || mutating) return false;
+    if (destination.mode === 'create' ? !canCreateItem(destination.parentId) : !canEditItem(destination.id)) return false;
     mutating = true;
     try {
+      if (destination.mode === 'edit') return await onEditItem({ id: destination.id, ...fields });
       const id = await onCreateItem({ parentId: destination.parentId, afterId: destination.afterId, type: destination.kind, ...fields });
       if (!id) return false;
       // Closing a native dialog first restores its old focused element.
       // Select the created row in onclose, after that restoration has finished.
-      creation = { ...destination, createdId: id };
+      properties = { ...destination, createdId: id };
       return true;
     } finally {
       mutating = false;
@@ -444,7 +469,7 @@
   }
 
   function focusActivePane(reveal = true): void {
-    if (creation || popupOpen || externalPopupOpen) return;
+    if (properties || popupOpen || externalPopupOpen) return;
     lists[activeSide]?.focusSelected(reveal);
   }
 
@@ -510,11 +535,11 @@
       if (isLanguagePickerTarget(event.relatedTarget)) return;
       await tick();
       // Browser tabs and native permission dialogs keep their own focus.
-      if (mounted && !creation && document.hasFocus() && !isLanguagePickerTarget(document.activeElement) && paneSideFor(document.activeElement) === undefined) focusActivePane();
+      if (mounted && !properties && document.hasFocus() && !isLanguagePickerTarget(document.activeElement) && paneSideFor(document.activeElement) === undefined) focusActivePane();
     }
 
     function onDocumentMousedown(event: MouseEvent): void {
-      if (creation) return;
+      if (properties) return;
       if (isLanguagePickerTarget(event.target)) {
         if (popupOpen) void closePopup();
         return;
@@ -544,7 +569,7 @@
     }
 
     function onDocumentKeydown(event: KeyboardEvent): void {
-      if (creation || popupOpen || externalPopupOpen || event.isComposing || event.defaultPrevented) return;
+      if (properties || popupOpen || externalPopupOpen || event.isComposing || event.defaultPrevented) return;
       if (!event.altKey && !event.metaKey) {
         // Physical letter keys keep the shortcuts available in other layouts.
         const key = event.code.startsWith('Key') ? event.code.slice(3).toLowerCase() : event.key.toLowerCase();
@@ -640,7 +665,7 @@
         markedIds={markedIdsFor(pane)}
         parentFolderId={pane.folder?.parentId}
         {loading}
-        active={activeSide === pane.side && !creation && !popupOpen && !externalPopupOpen}
+        active={activeSide === pane.side && !properties && !popupOpen && !externalPopupOpen}
         dropMarkerTop={dropTarget?.side === pane.side ? dropTarget.top : undefined}
         draggedIds={itemDrag?.side === pane.side ? itemDrag.ids : undefined}
         onActivate={() => (activeSide = pane.side)}
@@ -693,8 +718,15 @@
   {#if popupOpen === 'about'}<About onClose={() => void closePopup()} />{/if}
 </div>
 
-{#if creation}
-  <CreateBookmarkDialog kind={creation.kind} onCreate={createItem} onClose={closeCreation} />
+{#if properties}
+  <BookmarkPropertiesDialog
+    mode={properties.mode}
+    kind={properties.kind}
+    initialTitle={properties.mode === 'edit' ? properties.title : ''}
+    initialUrl={properties.mode === 'edit' ? properties.url : ''}
+    onSubmit={saveProperties}
+    onClose={closeProperties}
+  />
 {/if}
 
 <style>

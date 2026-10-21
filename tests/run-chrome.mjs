@@ -17,6 +17,7 @@ try {
   const extension = join(work, 'extension');
   await cp(new URL('../dist/chrome/', import.meta.url), extension, { recursive: true });
   await cp(new URL('./chrome.browser.js', import.meta.url), join(extension, 'chrome.browser.js'));
+  await cp(new URL('./bookmark-edit.browser.js', import.meta.url), join(extension, 'bookmark-edit.browser.js'));
   await cp(new URL('./bookmark-drag.browser.js', import.meta.url), join(extension, 'bookmark-drag.browser.js'));
   const manifest = JSON.parse(await readFile(join(extension, 'manifest.json'), 'utf8'));
   const { publicKey } = generateKeyPairSync('rsa', { modulusLength: 1024 });

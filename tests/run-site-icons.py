@@ -104,6 +104,7 @@ def run():
             shutil.copy(ROOT / 'tests/bookmark-commands.browser.js', extension / 'bookmark-commands.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-delete.browser.js', extension / 'bookmark-delete.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-create.browser.js', extension / 'bookmark-create.browser.js')
+            shutil.copy(ROOT / 'tests/bookmark-edit.browser.js', extension / 'bookmark-edit.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-pointer.browser.js', extension / 'bookmark-pointer.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-drag.browser.js', extension / 'bookmark-drag.browser.js')
             manifest = json.loads((extension / 'manifest.json').read_text())
@@ -369,6 +370,7 @@ def run():
                                         windows: [...Services.wm.getEnumerator('navigator:browser')].length,
                                         sidebar: SidebarController.currentID,
                                         bookmarkPopup: document.getElementById('editBookmarkPanel')?.state ?? 'closed',
+                                        urlbarFocused: gURLBar.focused,
                                         reservedNewWindow: document.getElementById('key_newNavigator').getAttribute('reserved')
                                     };''', 'args': []
                                 })['value']
@@ -571,6 +573,47 @@ def run():
                                 delete window.creationTestFocus;
                             ''')
                             result['results'].append('Browser-level Ctrl+Shift+F opens folder creation without opening Firefox UI and restores pane focus after cancellation')
+                            for selector in [
+                                '[data-bookmark-pane="0"] [data-bookmark-row] button[aria-pressed="false"]',
+                                '[aria-label="Команды"] button[aria-label="Редактировать"]',
+                                '[data-bookmark-edit-dialog] input[name="url"]'
+                            ]:
+                                edit_point = pointer_script('''
+                                    const control = document.querySelector(arguments[0]);
+                                    if (!control) throw new Error('Native editing control is missing: ' + arguments[0]);
+                                    control.scrollIntoView({block: 'nearest', inline: 'nearest'});
+                                    const bounds = control.getBoundingClientRect();
+                                    return {x: Math.round(bounds.left + bounds.width / 2), y: Math.round(bounds.top + bounds.height / 2)};
+                                ''', [selector])
+                                pointer_actions([
+                                    {'type': 'pointerMove', **edit_point, 'duration': 0},
+                                    {'type': 'pointerDown', 'button': 0},
+                                    {'type': 'pointerUp', 'button': 0}
+                                ])
+                            pointer_script('''
+                                const dialog = document.querySelector('[data-bookmark-edit-dialog]');
+                                if (!dialog?.open || dialog.querySelector('input[name="title"]').value !== 'Drag A' || document.activeElement !== dialog.querySelector('input[name="url"]')) throw new Error('Native editing clicks did not open and focus the bookmark properties');
+                            ''')
+                            browser_key('KEY_Escape')
+                            pointer_script('''
+                                const row = document.querySelector('[data-bookmark-pane="0"] button[aria-pressed="true"]');
+                                if (document.querySelector('[data-bookmark-edit-dialog]') || document.activeElement !== row || !row.textContent.includes('Drag A')) throw new Error('Escape did not close editing and restore the original row focus');
+                            ''')
+                            result['results'].append('Native mouse clicks open bookmark editing and focus its address field; Escape restores the original pane row')
+                            shortcut_state = browser_shortcut_state()
+                            browser_key('e', {'ctrlKey': True})
+                            pointer_script('''
+                                const dialog = document.querySelector('[data-bookmark-edit-dialog]');
+                                if (!dialog?.open || dialog.querySelector('input[name="title"]').value !== 'Drag A' || document.activeElement !== dialog.querySelector('input[name="title"]')) throw new Error('Browser-level Ctrl+E did not open bookmark editing');
+                            ''')
+                            if browser_shortcut_state() != shortcut_state:
+                                raise RuntimeError('Ctrl+E triggered Firefox UI alongside bookmark editing')
+                            browser_key('KEY_Escape')
+                            pointer_script('''
+                                const row = document.querySelector('[data-bookmark-pane="0"] button[aria-pressed="true"]');
+                                if (document.querySelector('[data-bookmark-edit-dialog]') || document.activeElement !== row) throw new Error('Cancelling Ctrl+E editing did not restore pane focus');
+                            ''')
+                            result['results'].append('Browser-level Ctrl+E opens bookmark editing without focusing the Firefox address bar and restores pane focus on cancellation')
                             help_point = pointer_script('''
                                 window.helpTestFocus = document.activeElement;
                                 window.helpTestScroll = [...document.querySelectorAll('[data-bookmark-list]')].map(list => list.scrollTop);
