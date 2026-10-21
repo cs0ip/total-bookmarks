@@ -58,6 +58,7 @@
   "upOneLevel": "Up one level",
   "parentFolder": "Parent folder",
   "selectFolder": "Select folder",
+  "selectSeparator": "Select separator",
   "selectBookmark": "Select bookmark",
   "enterTitle": "Enter a name.",
   "createRetry": "Could not create the item. Check the details and try again.",

@@ -58,6 +58,7 @@
   "upOneLevel": "返回上一级",
   "parentFolder": "上级文件夹",
   "selectFolder": "选择文件夹",
+  "selectSeparator": "选择分隔线",
   "selectBookmark": "选择书签",
   "enterTitle": "请输入名称。",
   "createRetry": "无法创建项目。请检查填写的信息后重试。",

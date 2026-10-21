@@ -300,7 +300,12 @@ export async function runBookmarkTests() {
       pressArrow('ArrowDown', true);
       await untilFocused(2);
       assert(document.activeElement === navigationRows[2], 'Repeated ArrowDown moves focus to a separator like any other row');
-      assert(!navigationRows[2].parentElement.querySelector('input[type="checkbox"]'), 'Separator rows have no bookmark selection checkbox');
+      assert(navigationChecks[2]?.getAttribute('aria-label') === 'Выделить разделитель' && navigationChecks[2].tabIndex === -1, 'Separator rows have an accessible selection checkbox excluded from Tab navigation');
+      pressArrow(' ');
+      await until(() => navigationChecks[2].checked);
+      assert(pressArrow(' ', true).defaultPrevented && navigationChecks[2].checked, 'Space marks a separator without moving focus and ignores held-key repeats');
+      pressArrow(' ');
+      await until(() => !navigationChecks[2].checked);
       const separatorLine = navigationRows[2].querySelector('[data-bookmark-separator]');
       assert(separatorLine && parseFloat(getComputedStyle(separatorLine).borderTopWidth) > 0 && separatorLine.getBoundingClientRect().width > navigationRows[2].getBoundingClientRect().width * 0.8, 'Existing Firefox separators render as visible horizontal lines across their rows');
       pressArrow('ArrowUp');
@@ -359,7 +364,7 @@ export async function runBookmarkTests() {
       assert(checkbox(left, 'Keyboard child folder').checked, 'Insert marks a folder and advances focus to the next row');
       pressArrow('Insert');
       await untilFocused(3);
-      assert(navigationList.querySelectorAll('input:checked').length === 1, 'Insert on a separator advances without adding a mark');
+      assert(navigationChecks[2].checked && navigationList.querySelectorAll('input:checked').length === 2, 'Insert on a separator marks it and advances');
       pressArrow('Insert');
       await untilFocused(4);
       assert(navigationChecks[3].checked, 'Insert marks a bookmark and advances focus');
@@ -377,13 +382,13 @@ export async function runBookmarkTests() {
       await untilFocused(0);
       pressArrow('ArrowDown', false, true);
       await untilFocused(1);
-      assert(navigationList.querySelectorAll('input:checked').length === 3, 'Shift+Down on the parent entry advances without changing marks');
+      assert(navigationList.querySelectorAll('input:checked').length === 4, 'Shift+Down on the parent entry advances without changing marks');
       pressArrow('ArrowDown', false, true);
       await untilFocused(2);
       assert(!checkbox(left, 'Keyboard child folder').checked, 'Shift+Down removes the mark from an already selected folder and advances focus');
       pressArrow('ArrowDown', false, true);
       await untilFocused(3);
-      assert(navigationList.querySelectorAll('input:checked').length === 2, 'Shift+Down advances past separators without marking them');
+      assert(!navigationChecks[2].checked && navigationList.querySelectorAll('input:checked').length === 2, 'Shift+Down removes the mark from an already selected separator and advances');
       pressArrow('ArrowDown', false, true);
       await untilFocused(4);
       pressArrow('ArrowDown', true, true);
@@ -396,17 +401,17 @@ export async function runBookmarkTests() {
       await untilFocused(9);
       const shiftHome = pressArrow('Home', false, true);
       await untilFocused(0);
-      assert(shiftHome.defaultPrevented && navigationChecks[1].checked && navigationChecks[3].checked && !navigationChecks[4].checked && !navigationChecks[5].checked && navigationChecks.slice(6, 10).every((input) => input.checked) && !navigationChecks[10].checked && navigationChecks.at(-1).checked, 'Shift+Home toggles the inclusive range to the first row and preserves marks outside that range');
+      assert(shiftHome.defaultPrevented && navigationChecks[1].checked && navigationChecks[2].checked && navigationChecks[3].checked && !navigationChecks[4].checked && !navigationChecks[5].checked && navigationChecks.slice(6, 10).every((input) => input.checked) && !navigationChecks[10].checked && navigationChecks.at(-1).checked, 'Shift+Home toggles the inclusive range to the first row and preserves marks outside that range');
       navigationRows[9].focus({ preventScroll: true });
       await untilFocused(9);
       const shiftEnd = pressArrow('End', false, true);
       await untilFocused(navigationRows.length - 1);
-      assert(shiftEnd.defaultPrevented && !navigationChecks[9].checked && navigationChecks.slice(10, -1).every((input) => input.checked) && !navigationChecks.at(-1).checked && navigationList.querySelectorAll('input:checked').length === 17 && left.querySelector('header').textContent.includes('Выбрано: 17') && rowVisible(document.activeElement), 'Shift+End toggles the inclusive range to the last row, updates the count and reveals the focused row');
+      assert(shiftEnd.defaultPrevented && !navigationChecks[9].checked && navigationChecks.slice(10, -1).every((input) => input.checked) && !navigationChecks.at(-1).checked && navigationList.querySelectorAll('input:checked').length === 18 && left.querySelector('header').textContent.includes('Выбрано: 18') && rowVisible(document.activeElement), 'Shift+End toggles the inclusive range to the last row, updates the count and reveals the focused row');
       navigationRows.at(-2).focus({ preventScroll: true });
       await untilFocused(navigationRows.length - 2);
       pressArrow('End', false, true);
       await untilFocused(navigationRows.length - 1);
-      assert(!navigationChecks.at(-2).checked && navigationChecks.at(-1).checked && navigationList.querySelectorAll('input:checked').length === 17, 'A mixed range updates both marks even when the total selected count remains unchanged');
+      assert(!navigationChecks.at(-2).checked && navigationChecks.at(-1).checked && navigationList.querySelectorAll('input:checked').length === 18, 'A mixed range updates both marks even when the total selected count remains unchanged');
 
       for (const input of navigationChecks.filter((input) => input?.checked)) {
         clickCheckbox(input);
@@ -423,13 +428,13 @@ export async function runBookmarkTests() {
       await untilFocused(1);
       shiftClick(navigationRows[5]);
       await untilFocused(5);
-      assert([1, 3, 4, 5].every((index) => navigationChecks[index].checked) && navigationChecks.at(-1).checked && navigationList.querySelectorAll('input:checked').length === 5, 'Shift-click selects an inclusive range containing folders and bookmarks, skips separators, and preserves outside marks');
+      assert([1, 2, 3, 4, 5].every((index) => navigationChecks[index].checked) && navigationChecks.at(-1).checked && navigationList.querySelectorAll('input:checked').length === 6, 'Shift-click selects an inclusive range containing folders, separators and bookmarks, and preserves outside marks');
       shiftClick(navigationRows[1]);
       await untilFocused(1);
       assert(navigationList.querySelectorAll('input:checked').length === 1 && navigationChecks.at(-1).checked, 'Repeating Shift-click over the same range in reverse removes its marks and preserves outside marks');
       shiftClick(navigationRows[5]);
       await untilFocused(5);
-      assert([1, 3, 4, 5].every((index) => navigationChecks[index].checked), 'Shift-click restores the range after its marks were removed');
+      assert([1, 2, 3, 4, 5].every((index) => navigationChecks[index].checked), 'Shift-click restores the range after its marks were removed');
       shiftClick(navigationRows[3]);
       await untilFocused(3);
       assert(navigationChecks[1].checked && [3, 4, 5].every((index) => !navigationChecks[index].checked), 'An upward Shift-click toggles both boundaries and all intermediate items off');
@@ -460,10 +465,10 @@ export async function runBookmarkTests() {
       await untilFocused(3);
       shiftClick(navigationRows[0]);
       await untilFocused(0);
-      assert(navigationChecks[1].checked && navigationChecks[3].checked && navigationList.querySelectorAll('input:checked').length === 2, 'The parent entry can end an inclusive range without marking the parent or separator');
+      assert(navigationChecks[1].checked && navigationChecks[2].checked && navigationChecks[3].checked && navigationList.querySelectorAll('input:checked').length === 3, 'The parent entry can end an inclusive range that includes separators without marking the parent');
       shiftClick(navigationRows[2]);
       await untilFocused(2);
-      assert(!navigationChecks[1].checked && navigationChecks[3].checked && navigationList.querySelectorAll('input:checked').length === 1, 'A separator can end a range and toggle marked folders off without receiving a mark');
+      assert(!navigationChecks[1].checked && !navigationChecks[2].checked && navigationChecks[3].checked && navigationList.querySelectorAll('input:checked').length === 1, 'A separator can end a range and toggle its own mark and marked folders off');
     } finally {
       if (originalListStyle === null) navigationList.removeAttribute('style');
       else navigationList.setAttribute('style', originalListStyle);

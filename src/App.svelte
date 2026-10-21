@@ -157,7 +157,6 @@
 
   function canMoveItems(request: MoveRequest): boolean {
     if (!canRemoveItems(request) || request.destinationId === rootId) return false;
-    if (request.ids.some((id) => findNode(id)?.type === 'separator')) return false;
     const destination = findNode(request.destinationId);
     if (!destination?.children || destination.unmodifiable) return false;
     const ids = new Set(request.ids);
@@ -278,7 +277,7 @@
     try {
       const source = await getChildren(request.sourceId);
       const destination = request.sourceId === request.destinationId ? source : await getChildren(request.destinationId);
-      if (source.some((item) => request.ids.includes(item.id) && (isProtectedItem(item) || item.type === 'separator'))) {
+      if (source.some((item) => request.ids.includes(item.id) && isProtectedItem(item))) {
         throw new Error('Selected bookmarks cannot be moved');
       }
       const plan = planMoves(source, destination, request);

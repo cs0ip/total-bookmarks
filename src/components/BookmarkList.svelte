@@ -50,7 +50,7 @@
 
   $effect(() => {
     if (loading) return;
-    const available = new Set(items.filter((item) => item.type !== 'separator').map((item) => item.id));
+    const available = new Set(items.map((item) => item.id));
     const retained = new Set([...markedIds].filter((id) => available.has(id)));
     if (retained.size !== markedIds.size) onMarkedIdsChange(retained);
   });
@@ -67,7 +67,7 @@
     let changed = false;
     for (let index = Math.min(from, to); index <= Math.max(from, to); index++) {
       const item = rows[index];
-      if (item.id === PARENT_FOLDER_ITEM_ID || item.type === 'separator') continue;
+      if (item.id === PARENT_FOLDER_ITEM_ID) continue;
       if (next.has(item.id)) next.delete(item.id);
       else next.add(item.id);
       changed = true;
@@ -152,7 +152,7 @@
       event.preventDefault();
       if (loading || event.repeat) return;
       const item = rows.find((row) => row.id === activeSelectedId);
-      if (item && item.id !== PARENT_FOLDER_ITEM_ID && item.type !== 'separator') {
+      if (item && item.id !== PARENT_FOLDER_ITEM_ID) {
         markItem(item.id, !markedIds.has(item.id));
       }
       return;
@@ -213,6 +213,14 @@
             onKeydown={(event) => onItemKeydown(event, item)}
           />
         {:else if item.type === 'separator'}
+          <input
+            class="ml-[9px] size-4 shrink-0 cursor-pointer accent-[#5f44b4]"
+            type="checkbox"
+            tabindex="-1"
+            checked={markedIds.has(item.id)}
+            aria-label={$t('selectSeparator')}
+            onchange={(event) => markItem(item.id, event.currentTarget.checked)}
+          />
           <button
             class="flex h-10 min-w-0 flex-1 cursor-pointer items-center border-0 bg-transparent px-[9px] text-left focus:outline-none"
             type="button"

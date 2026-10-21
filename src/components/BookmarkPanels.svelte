@@ -293,15 +293,15 @@
     }
   }
 
-  function selectedIds(pane: PaneView, includeSeparators = false): string[] {
+  function selectedIds(pane: PaneView): string[] {
     const marked = pane.items.filter((item) => markedIdsFor(pane).has(item.id));
-    const focused = pane.items.find((item) => item.id === pane.selectedId && (includeSeparators || item.type !== 'separator'));
+    const focused = pane.items.find((item) => item.id === pane.selectedId);
     return marked.length ? marked.map((item) => item.id) : focused ? [focused.id] : [];
   }
 
   function removeRequest(): ItemRequest {
     const pane = activeSide === 0 ? left : right;
-    return { sourceId: pane.folder?.id ?? '', ids: selectedIds(pane, true) };
+    return { sourceId: pane.folder?.id ?? '', ids: selectedIds(pane) };
   }
 
   function clearSelection(): void {
@@ -309,7 +309,7 @@
   }
 
   function selectableIds(pane: PaneView): string[] {
-    return pane.items.filter((item) => item.type !== 'separator').map((item) => item.id);
+    return pane.items.map((item) => item.id);
   }
 
   function selectAll(): void {
@@ -473,7 +473,7 @@
     const row = event.target.closest<HTMLElement>('[data-bookmark-row]');
     const source = side === 0 ? left : right;
     const item = source.items.find((item) => item.id === row?.dataset.bookmarkId);
-    if (!source.folder || !item || item.type === 'separator') return;
+    if (!source.folder || !item) return;
     const markedIds = new Set(source.items.filter((item) => markedIdsFor(source).has(item.id)).map((item) => item.id));
     const ids = markedIds.size ? new Set(markedIds) : new Set([item.id]);
     if (!canMoveItems({ sourceId: source.folder.id, destinationId: source.folder.id, ids: [...ids] })) return;

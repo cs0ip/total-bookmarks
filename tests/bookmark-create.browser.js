@@ -149,7 +149,7 @@ export async function runBookmarkCreationTests({ fixtures, left, right, row, par
     const withSeparator = await browser.bookmarks.getChildren(source.id);
     const separator = withSeparator[withSeparator.findIndex((item) => item.title === 'Create A') + 1];
     assert(separator.type === 'separator' && separatorRow(left).parentElement.dataset.bookmarkId === separator.id && checkbox(left, 'Create A').checked, 'A separator is inserted after the left focused row, receives focus and retains existing marks');
-    assert(!separatorRow(left).parentElement.querySelector('input') && command('Редактировать').disabled, 'A focused separator has no checkbox or editable properties');
+    assert(separatorRow(left).parentElement.querySelector('input') && !separatorRow(left).parentElement.querySelector('input').checked && command('Редактировать').disabled, 'A focused separator has an initially unchecked selection checkbox and no editable properties');
     const separatorIndex = withSeparator.findIndex((item) => item.id === separator.id);
     separatorRow(left).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
     separatorRow(left).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
@@ -176,6 +176,39 @@ export async function runBookmarkCreationTests({ fixtures, left, right, row, par
     await chooseCreation('Разделитель');
     await until(() => separatorCount(right) === 1 && document.activeElement === separatorRow(right));
     assert((await browser.bookmarks.getChildren(emptyForSeparator.id)).length === 1, 'A separator can be the first and only item in an empty folder');
+    const [markedSeparator] = await browser.bookmarks.getChildren(emptyForSeparator.id);
+    const companion = await originalCreate({ parentId: emptyForSeparator.id, title: 'Separator companion', url: 'about:blank' });
+    await until(() => row(right, companion.title));
+    await mark(right, 'Разделитель');
+    await mark(right, companion.title);
+    await focus(right, companion.title);
+    parentRow(right).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await until(() => row(right, emptyForSeparator.title));
+    open(right, emptyForSeparator.title);
+    await until(() => row(right, companion.title));
+    assert(right.querySelector(`[data-bookmark-id="${markedSeparator.id}"] input`).checked && checkbox(right, companion.title).checked && right.querySelector('header').textContent.includes('Выбрано: 2'), 'Separator and bookmark marks survive leaving and reentering their folder');
+    await browser.bookmarks.update(companion.id, { title: 'Updated separator companion' });
+    await until(() => row(right, 'Updated separator companion'));
+    assert(right.querySelector(`[data-bookmark-id="${markedSeparator.id}"] input`).checked, 'Refreshing the bookmark tree retains a marked separator');
+    await focus(right, 'Updated separator companion');
+    clickCommand('Переместить влево');
+    await until(() => row(left, 'Updated separator companion') && !row(right, 'Updated separator companion'));
+    const movedChildren = await browser.bookmarks.getChildren(source.id);
+    const movedIndex = movedChildren.findIndex((item) => item.id === markedSeparator.id);
+    assert(movedIndex >= 0 && movedChildren[movedIndex + 1]?.id === companion.id && left.querySelector(`[data-bookmark-id="${markedSeparator.id}"] input`).checked && checkbox(left, 'Updated separator companion').checked && !right.querySelector('input:checked'), 'Moving a mixed marked group transfers separators and bookmarks in order and moves their marks to the destination pane');
+    await focus(left, 'Create C');
+    clickCommand('Ничего');
+    await until(() => !left.querySelector('input:checked'));
+    left.querySelector(`[data-bookmark-id="${markedSeparator.id}"] input`).click();
+    await mark(left, 'Updated separator companion');
+    const confirm = window.confirm;
+    let message;
+    window.confirm = (text) => { message = text; return true; };
+    try {
+      clickCommand('Удалить');
+      await until(() => !left.querySelector(`[data-bookmark-id="${markedSeparator.id}"]`) && !row(left, 'Updated separator companion'));
+      assert(message.includes('Количество элементов: 2.') && document.activeElement === row(left, 'Create C') && separatorCount(left) === 1 && !(await browser.bookmarks.getChildren(source.id)).some((item) => item.id === companion.id), 'Batch deletion removes marked separators and bookmarks while retaining the unmarked separator and focused row');
+    } finally { window.confirm = confirm; }
     parentRow(right).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     await until(() => right.querySelector('h2').textContent === 'Created folder');
 

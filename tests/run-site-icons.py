@@ -778,6 +778,17 @@ def run():
                             ''')
                             if browser_shortcut_state() != shortcut_state:
                                 raise RuntimeError('Ctrl+Shift+S triggered Firefox UI alongside separator creation')
+                            native_click('[data-bookmark-pane="0"] [data-bookmark-row]:has([data-bookmark-separator]) input')
+                            pointer_script('''
+                                const row = document.querySelector(`[data-bookmark-id="${window.separatorTestId}"]`);
+                                if (!row.querySelector('input').checked || document.activeElement !== row.querySelector('button')) throw new Error('A native separator checkbox click did not mark the separator and preserve row focus');
+                            ''')
+                            browser_key(' ')
+                            pointer_script('''
+                                const row = document.querySelector(`[data-bookmark-id="${window.separatorTestId}"]`);
+                                if (row.querySelector('input').checked || document.activeElement !== row.querySelector('button')) throw new Error('Native Space did not clear the separator mark and preserve focus');
+                            ''')
+                            result['results'].append('Native separator checkbox clicks and Space toggle its mark without opening the separator or moving row focus')
                             pointer_script('''
                                 await browser.bookmarks.remove(window.separatorTestId);
                                 const deadline = Date.now() + 10000;
