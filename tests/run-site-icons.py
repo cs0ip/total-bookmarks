@@ -99,6 +99,7 @@ def run():
             extension = work / 'extension'
             shutil.copytree(ROOT / 'dist/firefox', extension)
             shutil.copy(ROOT / 'tests/site-icons.browser.js', extension / 'site-icons.browser.js')
+            shutil.copy(ROOT / 'tests/layout.browser.js', extension / 'layout.browser.js')
             shutil.copy(ROOT / 'tests/locales.browser.js', extension / 'locales.browser.js')
             shutil.copy(ROOT / 'tests/bookmarks.browser.js', extension / 'bookmarks.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-commands.browser.js', extension / 'bookmark-commands.browser.js')
@@ -208,6 +209,36 @@ def run():
                         })['value']
                         if 'error' in result:
                             raise RuntimeError(json.dumps(result, indent=2))
+                        for width, height in [(1200, 800), (1000, 600), (600, 900), (600, 780)]:
+                            command('WebDriver:SetWindowRect', {'width': width, 'height': height})
+                            layout = command('WebDriver:ExecuteAsyncScript', {
+                                'script': '''
+                                    const done = arguments[arguments.length - 1];
+                                    import('./layout.browser.js')
+                                        .then(module => module.verifyManagerLayout(arguments[0]))
+                                        .then(value => done({value}))
+                                        .catch(error => done({error: String(error)}));
+                                ''', 'args': [f'Permission banner at {width}×{height}']
+                            })['value']
+                            if 'error' in layout:
+                                raise RuntimeError(layout['error'])
+                            result['results'].append(layout['value'])
+                        command('WebDriver:SetWindowRect', {'width': 1200, 'height': 900})
+                        larger_text = command('WebDriver:ExecuteAsyncScript', {
+                            'script': '''
+                                const done = arguments[arguments.length - 1];
+                                const previous = document.documentElement.style.fontSize;
+                                document.documentElement.style.fontSize = '20px';
+                                import('./layout.browser.js')
+                                    .then(module => module.verifyManagerLayout('Permission banner with larger text'))
+                                    .then(value => done({value}))
+                                    .catch(error => done({error: String(error)}))
+                                    .finally(() => { document.documentElement.style.fontSize = previous; });
+                            ''', 'args': []
+                        })['value']
+                        if 'error' in larger_text:
+                            raise RuntimeError(larger_text['error'])
+                        result['results'].append(larger_text['value'])
                         button = command('WebDriver:FindElement', {
                             'using': 'css selector', 'value': '[role="status"] button'
                         })['value']

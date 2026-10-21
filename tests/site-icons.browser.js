@@ -206,9 +206,20 @@ export async function runIconTests(origin) {
       await browser.bookmarks.remove(asyncBookmark.id);
     }
     await mode('image');
-    await browser.permissions.remove({ origins: ['http://*/*', 'https://*/*'] });
-    await until(() => document.querySelector('[role="status"] button')?.textContent === 'Разрешить загрузку иконок');
-    assert(true, 'Missing host access displays an actionable permission button');
+    const layoutBookmarks = [];
+    try {
+      for (let index = 0; index < 20; index++) {
+        layoutBookmarks.push(await browser.bookmarks.create({ parentId: toolbar.id, title: `Permission layout ${index}`, url: 'about:blank' }));
+      }
+      await until(() => document.querySelector(`[data-bookmark-id="${layoutBookmarks.at(-1).id}"]`));
+      await browser.permissions.remove({ origins: ['http://*/*', 'https://*/*'] });
+      await until(() => document.querySelector('[role="status"] button')?.textContent === 'Разрешить загрузку иконок');
+      assert(true, 'Missing host access displays an actionable permission button');
+      const { verifyManagerLayout } = await import('./layout.browser.js');
+      results.push(await verifyManagerLayout('Permission banner with a long bookmark list'));
+    } finally {
+      for (const bookmark of layoutBookmarks) await browser.bookmarks.remove(bookmark.id);
+    }
     const beforePermission = await stats();
     await record(origin, { ...(await record(origin)), icon: null, nextRefreshAt: 0 });
     assert(await get(`${origin}/page`) === null, 'An unpermitted origin uses the default icon');
@@ -236,7 +247,11 @@ export async function verifyPermissionRetry(origin) {
         request.onerror = () => reject(request.error);
       });
       if (value?.icon && !document.querySelector('[role="status"] button')) {
-        return ['Granting host access dismisses the banner and immediately retries a previously failed icon'];
+        const { verifyManagerLayout } = await import('./layout.browser.js');
+        return [
+          'Granting host access dismisses the banner and immediately retries a previously failed icon',
+          await verifyManagerLayout('After granting icon access')
+        ];
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
     }

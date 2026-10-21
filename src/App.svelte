@@ -363,8 +363,8 @@
   <title>{$t('pageTitle')}</title>
 </svelte:head>
 
-<main class="flex min-h-screen flex-col gap-[18px] p-6 max-[700px]:p-[14px]">
-  <header class="flex items-center justify-between gap-4">
+<main class="flex h-dvh flex-col gap-[18px] p-6 max-[700px]:p-[14px]">
+  <header class="flex shrink-0 items-center justify-between gap-4">
     <div class="flex items-center gap-3">
       <img class="size-9" src="./icons/logo.svg" alt="" />
       <div>
@@ -379,7 +379,7 @@
   </header>
 
   {#if iconAccessAllowed === false}
-    <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#d5dbea] bg-white px-[14px] py-[10px] text-[#34405a]" role="status">
+    <div class="flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-[#d5dbea] bg-white px-[14px] py-[10px] text-[#34405a]" role="status">
       {#if iconManifestReady}
         <span>{$t('iconPermission')}</span>
         <button
@@ -400,7 +400,7 @@
   {/if}
 
   {#if error}
-    <p class="rounded-lg bg-[#fff1f1] px-[14px] py-[10px] text-[#a02c2c]" role="alert">{$t(error)}</p>
+    <p class="shrink-0 rounded-lg bg-[#fff1f1] px-[14px] py-[10px] text-[#a02c2c]" role="alert">{$t(error)}</p>
   {/if}
 
   <BookmarkPanels

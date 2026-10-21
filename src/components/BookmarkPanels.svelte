@@ -732,11 +732,11 @@
   {#each [left, right] as pane (pane.side)}
     {@const path = pane.folderPath.map((folder) => folder.title).join(' / ')}
     <section
-      class="flex min-h-[360px] min-w-0 max-h-[calc(100vh-180px)] flex-col overflow-hidden rounded-xl border border-[#dce2ed] bg-white max-[700px]:min-h-[260px] max-[700px]:max-h-[45vh]"
+      class="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-[#dce2ed] bg-white"
       aria-label={pane.side === 0 ? $t('leftPane') : $t('rightPane')}
       data-bookmark-pane={pane.side}
     >
-      <header class="border-b border-[#e6eaf1] px-4 pt-[14px] pb-3">
+      <header class="shrink-0 border-b border-[#e6eaf1] px-4 pt-[14px] pb-3">
         <h2 class="mb-1 truncate text-[17px]">{pane.folder?.title || $t('allBookmarks')}</h2>
         <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#758097]">
           <span>{$t('itemCount', { count: pane.items.length })}</span>
@@ -763,7 +763,7 @@
         {onOpenBookmark}
       />
 
-      <footer class="border-t border-[#e6eaf1] px-4 py-[10px] text-[#69748b]">
+      <footer class="shrink-0 border-t border-[#e6eaf1] px-4 py-[10px] text-[#69748b]">
         <nav class="folder-path" title={path} aria-label={$t('folderPath', { path })}>
           <!-- Path separators supply all whitespace between the inline segments. -->
           <span dir="ltr">{#each pane.folderPath as folder, index (folder.id)}{#if index > 0}{' / '}{/if}{#if index === pane.folderPath.length - 1}<span aria-current="page">{folder.title}</span>{:else}<button
@@ -848,6 +848,7 @@
 
   .panels-layout {
     grid-template-columns: minmax(0, var(--left-width)) 12px minmax(0, var(--right-width));
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .resizing {
@@ -867,6 +868,7 @@
   @media (max-width: 700px) {
     .panels-layout {
       grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: repeat(2, minmax(0, 1fr));
       gap: 12px;
     }
   }

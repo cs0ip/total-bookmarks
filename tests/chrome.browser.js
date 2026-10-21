@@ -27,6 +27,8 @@ export async function runChromeTests() {
     await until(() => document.activeElement === row(side, title));
   }
   await until(() => pane(0) && selected(0));
+  const { verifyManagerLayout } = await import('./layout.browser.js');
+  results.push(await verifyManagerLayout('Chrome without a permission banner'));
   assert(browser.bookmarks === chrome.bookmarks, 'Chrome provides the shared browser namespace');
   assert(document.documentElement.lang === 'en', 'Chrome initially renders the English interface');
   document.querySelector('[data-language-button]').click();

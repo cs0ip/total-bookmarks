@@ -17,6 +17,7 @@ try {
   const extension = join(work, 'extension');
   await cp(new URL('../dist/chrome/', import.meta.url), extension, { recursive: true });
   await cp(new URL('./chrome.browser.js', import.meta.url), join(extension, 'chrome.browser.js'));
+  await cp(new URL('./layout.browser.js', import.meta.url), join(extension, 'layout.browser.js'));
   await cp(new URL('./bookmark-edit.browser.js', import.meta.url), join(extension, 'bookmark-edit.browser.js'));
   await cp(new URL('./bookmark-actions.browser.js', import.meta.url), join(extension, 'bookmark-actions.browser.js'));
   await cp(new URL('./bookmark-breadcrumbs.browser.js', import.meta.url), join(extension, 'bookmark-breadcrumbs.browser.js'));
