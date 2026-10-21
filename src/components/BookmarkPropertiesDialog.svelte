@@ -1,6 +1,8 @@
 <script lang="ts">
   import { t } from '../i18n';
   import { onMount, tick, untrack } from 'svelte';
+  import { editUrl, escapedUrl, readableUrl, encodedUrlSelection } from '../bookmarks/url';
+  import { settings, setSetting } from '../settings';
 
   type Props = {
     mode: 'create' | 'edit';
@@ -14,7 +16,9 @@
   let dialog: HTMLDialogElement;
   let titleInput: HTMLInputElement;
   let title = $state(untrack(() => initialTitle));
-  let url = $state(untrack(() => initialUrl));
+  let urlInput = $state<HTMLTextAreaElement>();
+  let encodedUrl = $state(untrack(() => escapedUrl(initialUrl)));
+  let url = $derived($settings.escapeAddressInDialog ? encodedUrl : readableUrl(encodedUrl, true));
   let submitting = $state(false);
   let failed = $state(false);
 
@@ -23,6 +27,49 @@
     titleInput.focus();
     return () => dialog.close();
   });
+
+  function validateUrl(): void {
+    if (!urlInput) return;
+    let valid = true;
+    try { new URL(encodedUrl); } catch { valid = !encodedUrl; }
+    urlInput.setCustomValidity(valid ? '' : $t('invalidAddress'));
+  }
+
+  function updateUrl(event: Event): void {
+    encodedUrl = editUrl(encodedUrl, (event.currentTarget as HTMLTextAreaElement).value, $settings.escapeAddressInDialog, true);
+    validateUrl();
+  }
+
+  function copyUrl(event: ClipboardEvent): void {
+    if (!event.clipboardData || !urlInput || urlInput.selectionStart === urlInput.selectionEnd) return;
+    event.clipboardData.setData('text/plain', encodedUrlSelection(encodedUrl, urlInput.selectionStart, urlInput.selectionEnd, $settings.escapeAddressInDialog, true));
+    event.preventDefault();
+  }
+
+  async function pasteUrl(event: ClipboardEvent): Promise<void> {
+    if (!event.clipboardData || !urlInput) return;
+    event.preventDefault();
+    const start = urlInput.selectionStart;
+    const end = urlInput.selectionEnd;
+    const pasted = escapedUrl(event.clipboardData.getData('text/plain'));
+    encodedUrl = encodedUrlSelection(encodedUrl, 0, start, $settings.escapeAddressInDialog, true) + pasted
+      + encodedUrlSelection(encodedUrl, end, url.length, $settings.escapeAddressInDialog, true);
+    validateUrl();
+    await tick();
+    const position = start + ($settings.escapeAddressInDialog ? pasted : readableUrl(pasted, true)).length;
+    urlInput.setSelectionRange(position, position);
+  }
+
+  async function cutUrl(event: ClipboardEvent): Promise<void> {
+    copyUrl(event);
+    if (!event.defaultPrevented || !urlInput) return;
+    const start = urlInput.selectionStart;
+    encodedUrl = encodedUrlSelection(encodedUrl, 0, start, $settings.escapeAddressInDialog, true)
+      + encodedUrlSelection(encodedUrl, urlInput.selectionEnd, url.length, $settings.escapeAddressInDialog, true);
+    validateUrl();
+    await tick();
+    urlInput.setSelectionRange(start, start);
+  }
 
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -35,7 +82,7 @@
     submitting = true;
     failed = false;
     try {
-      if (await onSubmit({ title: title.trim(), ...(kind === 'bookmark' ? { url: url.trim() } : {}) })) dialog.close();
+      if (await onSubmit({ title: title.trim(), ...(kind === 'bookmark' ? { url: encodedUrl } : {}) })) dialog.close();
       else failed = true;
     } finally {
       submitting = false;
@@ -61,10 +108,16 @@
       <input bind:this={titleInput} bind:value={title} oninput={() => titleInput.setCustomValidity('')} name="title" required disabled={submitting} class="rounded-md border border-[#b8c1d1] px-3 py-2 text-base focus:outline-2 focus:outline-[#5f44b4]" />
     </label>
     {#if kind === 'bookmark'}
-      <label class="flex flex-col gap-1 text-sm">
-        {$t('address')}
-        <input bind:value={url} name="url" type="url" required disabled={submitting} placeholder="https://example.com" class="rounded-md border border-[#b8c1d1] px-3 py-2 text-base focus:outline-2 focus:outline-[#5f44b4]" />
-      </label>
+      <div class="flex flex-col gap-1 text-sm">
+        <div class="flex items-center justify-between gap-3">
+          <label for="bookmark-url">{$t('address')}</label>
+          <label class="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" role="switch" data-escape-address checked={$settings.escapeAddressInDialog} disabled={submitting} onchange={(event) => { void setSetting('escapeAddressInDialog', event.currentTarget.checked); }} class="size-4 cursor-pointer accent-[#5f44b4]" />
+            {$t('escapeAddress')}
+          </label>
+        </div>
+        <textarea bind:this={urlInput} value={url} oninput={updateUrl} oncopy={copyUrl} oncut={cutUrl} onpaste={pasteUrl} onkeydown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!event.repeat) event.currentTarget.form?.requestSubmit(); } }} id="bookmark-url" name="url" rows="1" wrap="off" required disabled={submitting} placeholder="https://example.com" spellcheck="false" dir="ltr" class="resize-none overflow-x-auto rounded-md border border-[#b8c1d1] px-3 py-2 text-base focus:outline-2 focus:outline-[#5f44b4]"></textarea>
+      </div>
     {/if}
     {#if failed}<p role="alert" class="text-sm text-[#a02c2c]">{mode === 'edit' ? $t('editRetry') : $t('createRetry')}</p>{/if}
     <div class="mt-1 flex justify-end gap-2">

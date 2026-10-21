@@ -105,6 +105,8 @@ def run():
             shutil.copy(ROOT / 'tests/bookmark-delete.browser.js', extension / 'bookmark-delete.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-create.browser.js', extension / 'bookmark-create.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-edit.browser.js', extension / 'bookmark-edit.browser.js')
+            shutil.copy(ROOT / 'tests/bookmark-actions.browser.js', extension / 'bookmark-actions.browser.js')
+            shutil.copy(ROOT / 'tests/bookmark-breadcrumbs.browser.js', extension / 'bookmark-breadcrumbs.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-pointer.browser.js', extension / 'bookmark-pointer.browser.js')
             shutil.copy(ROOT / 'tests/bookmark-drag.browser.js', extension / 'bookmark-drag.browser.js')
             manifest = json.loads((extension / 'manifest.json').read_text())
@@ -342,6 +344,20 @@ def run():
                                 raise RuntimeError(json.dumps(checked, indent=2))
                             return checked.get('value')
 
+                        def native_click(selector):
+                            point = pointer_script('''
+                                const control = document.querySelector(arguments[0]);
+                                if (!control) throw new Error('Missing native click target: ' + arguments[0]);
+                                control.scrollIntoView({block: 'nearest', inline: 'nearest'});
+                                const bounds = control.getBoundingClientRect();
+                                return {x: Math.round(bounds.left + bounds.width / 2), y: Math.round(bounds.top + bounds.height / 2)};
+                            ''', [selector])
+                            pointer_actions([
+                                {'type': 'pointerMove', **point, 'duration': 0},
+                                {'type': 'pointerDown', 'button': 0},
+                                {'type': 'pointerUp', 'button': 0}
+                            ])
+
                         def browser_key(key, modifiers=None):
                             # Content WebDriver actions bypass reserved browser
                             # shortcuts. Start at the chrome window instead.
@@ -497,6 +513,23 @@ def run():
                             pointer_script('await window.pointerTests.cleanup(); delete window.pointerTests;')
                         pointer_script("window.dragTests = await import('./bookmark-drag.browser.js'); await window.dragTests.prepare();")
                         try:
+                            pointer_script('window.settingsTestFocus = document.activeElement;')
+                            native_click('[data-settings-button]')
+                            pointer_script('''
+                                if (!document.querySelector('#settings-popup') || document.activeElement !== document.querySelector('[data-escape-addresses]')) throw new Error('Native settings click failed to focus its switch');
+                            ''')
+                            native_click('[data-escape-addresses]')
+                            pointer_script('''
+                                const deadline = Date.now() + 5000;
+                                while (!(await browser.storage.local.get('total-bookmarks:settings'))['total-bookmarks:settings']?.escapeAddresses && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+                                if (!document.querySelector('[data-escape-addresses]').checked || document.activeElement !== document.querySelector('[data-escape-addresses]')) throw new Error('Native setting change lost its value or focus');
+                            ''')
+                            browser_key('KEY_Escape')
+                            pointer_script('''
+                                if (document.querySelector('#settings-popup') || document.activeElement !== window.settingsTestFocus) throw new Error('Settings did not restore pane focus after native Escape');
+                                delete window.settingsTestFocus;
+                            ''')
+                            result['results'].append('Native mouse clicks open settings and persist the escaping switch; Escape returns focus to the active pane')
                             pointer_script('window.creationTestFocus = document.activeElement;')
                             shortcut_state = browser_shortcut_state()
                             if shortcut_state['reservedNewWindow'] != 'true':
@@ -531,12 +564,14 @@ def run():
                                     {'type': 'keyDown', 'value': '\ue014'},
                                     {'type': 'keyUp', 'value': '\ue014'},
                                     {'type': 'keyDown', 'value': '\ue004'},
+                                    {'type': 'keyUp', 'value': '\ue004'},
+                                    {'type': 'keyDown', 'value': '\ue004'},
                                     {'type': 'keyUp', 'value': '\ue004'}
                                 ]
                             }]})
                             pointer_script('''
                                 const dialog = document.querySelector('[data-bookmark-create-dialog]');
-                                if (!dialog?.open || document.activeElement !== dialog.querySelector('input[name="url"]')) {
+                                if (!dialog?.open || document.activeElement !== dialog.querySelector('[name="url"]')) {
                                     throw new Error('Native keyboard navigation escaped the creation dialog');
                                 }
                             ''')
@@ -573,10 +608,48 @@ def run():
                                 delete window.creationTestFocus;
                             ''')
                             result['results'].append('Browser-level Ctrl+Shift+F opens folder creation without opening Firefox UI and restores pane focus after cancellation')
+                            pointer_script('window.createMenuTestFocus = document.activeElement;')
+                            for selector in [
+                                '[aria-label="Команды"] button[aria-controls="create-menu"]',
+                                '#create-menu button[aria-label="Папку"]'
+                            ]:
+                                menu_point = pointer_script('''
+                                    const control = document.querySelector(arguments[0]);
+                                    if (!control) throw new Error('Creation menu control is missing: ' + arguments[0]);
+                                    control.scrollIntoView({block: 'nearest', inline: 'nearest'});
+                                    const bounds = control.getBoundingClientRect();
+                                    return {x: Math.round(bounds.left + bounds.width / 2), y: Math.round(bounds.top + bounds.height / 2)};
+                                ''', [selector])
+                                pointer_actions([
+                                    {'type': 'pointerMove', **menu_point, 'duration': 0},
+                                    {'type': 'pointerDown', 'button': 0},
+                                    {'type': 'pointerUp', 'button': 0}
+                                ])
+                            pointer_script('''
+                                const dialog = document.querySelector('[data-bookmark-create-dialog]');
+                                if (document.querySelector('#create-menu') || !dialog?.open || dialog.querySelector('h2').textContent !== 'Создать папку' || document.activeElement !== dialog.querySelector('input[name="title"]')) throw new Error('Native menu click did not open folder creation');
+                            ''')
+                            browser_key('KEY_Escape')
+                            pointer_script('''
+                                if (document.querySelector('[data-bookmark-create-dialog]') || document.activeElement !== window.createMenuTestFocus) throw new Error('Cancelling creation from the menu did not restore pane focus');
+                                document.querySelector('[aria-controls="create-menu"]').click();
+                            ''')
+                            browser_key('KEY_Home')
+                            browser_key('KEY_Enter')
+                            pointer_script('''
+                                const dialog = document.querySelector('[data-bookmark-create-dialog]');
+                                if (document.querySelector('#create-menu') || !dialog?.open || dialog.querySelector('h2').textContent !== 'Создать закладку') throw new Error('Native Enter did not choose bookmark creation from the menu');
+                            ''')
+                            browser_key('KEY_Escape')
+                            pointer_script('''
+                                if (document.activeElement !== window.createMenuTestFocus) throw new Error('Keyboard menu selection did not restore pane focus after cancellation');
+                                delete window.createMenuTestFocus;
+                            ''')
+                            result['results'].append('Native mouse clicks and Enter choose creation menu items without losing focus, and cancellation restores the original pane row')
                             for selector in [
                                 '[data-bookmark-pane="0"] [data-bookmark-row] button[aria-pressed="false"]',
                                 '[aria-label="Команды"] button[aria-label="Редактировать"]',
-                                '[data-bookmark-edit-dialog] input[name="url"]'
+                                '[data-bookmark-edit-dialog] [name="url"]'
                             ]:
                                 edit_point = pointer_script('''
                                     const control = document.querySelector(arguments[0]);
@@ -592,8 +665,43 @@ def run():
                                 ])
                             pointer_script('''
                                 const dialog = document.querySelector('[data-bookmark-edit-dialog]');
-                                if (!dialog?.open || dialog.querySelector('input[name="title"]').value !== 'Drag A' || document.activeElement !== dialog.querySelector('input[name="url"]')) throw new Error('Native editing clicks did not open and focus the bookmark properties');
+                                if (!dialog?.open || dialog.querySelector('input[name="title"]').value !== 'Drag A' || document.activeElement !== dialog.querySelector('[name="url"]')) throw new Error('Native editing clicks did not open and focus the bookmark properties');
                             ''')
+                            pointer_script('''
+                                window.nativeUrl = 'https://example.test/Привет мир?q=中文&x=1';
+                                const input = document.querySelector('[data-bookmark-edit-dialog] [name="url"]');
+                                input.value = window.nativeUrl;
+                                input.dispatchEvent(new Event('input', {bubbles: true}));
+                                document.addEventListener('copy', event => { window.nativeCopy = {trusted: event.isTrusted, text: event.clipboardData.getData('text/plain')}; }, {once: true});
+                            ''')
+                            browser_key('a', {'ctrlKey': True})
+                            browser_key('c', {'ctrlKey': True})
+                            pointer_script('''
+                                if (!window.nativeCopy?.trusted || window.nativeCopy.text !== encodeURI(window.nativeUrl)) throw new Error('Native Ctrl+C did not copy the encoded address: ' + JSON.stringify(window.nativeCopy));
+                            ''')
+                            browser_key('x', {'ctrlKey': True})
+                            pointer_script('''
+                                if (document.querySelector('[data-bookmark-edit-dialog] [name="url"]').value !== '') throw new Error('Native Ctrl+X did not clear the selected URL');
+                            ''')
+                            browser_key('v', {'ctrlKey': True})
+                            pointer_script('''
+                                const deadline = Date.now() + 5000;
+                                while (Date.now() < deadline) {
+                                    if (document.querySelector('[data-bookmark-edit-dialog] [name="url"]').value === window.nativeUrl) return;
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('Native Ctrl+V failed to restore the decoded URL');
+                            ''')
+                            native_click('[data-escape-address]')
+                            pointer_script('''
+                                const deadline = Date.now() + 5000;
+                                while (Date.now() < deadline) {
+                                    if ((await browser.storage.local.get('total-bookmarks:settings'))['total-bookmarks:settings']?.escapeAddressInDialog && document.querySelector('[data-bookmark-edit-dialog] [name="url"]').value === encodeURI(window.nativeUrl)) return;
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('Native form escaping switch did not update and persist');
+                            ''')
+                            result['results'].append('Native Ctrl+C, Ctrl+X and Ctrl+V use encoded clipboard URLs with decoded display; native form switch persists independently')
                             browser_key('KEY_Escape')
                             pointer_script('''
                                 const row = document.querySelector('[data-bookmark-pane="0"] button[aria-pressed="true"]');
@@ -614,6 +722,132 @@ def run():
                                 if (document.querySelector('[data-bookmark-edit-dialog]') || document.activeElement !== row) throw new Error('Cancelling Ctrl+E editing did not restore pane focus');
                             ''')
                             result['results'].append('Browser-level Ctrl+E opens bookmark editing without focusing the Firefox address bar and restores pane focus on cancellation')
+                            shortcut_state = browser_shortcut_state()
+                            pointer_script('''
+                                window.separatorTestFocus = document.activeElement;
+                                const id = document.activeElement.closest('[data-bookmark-row]').dataset.bookmarkId;
+                                const [item] = await browser.bookmarks.get(id);
+                                window.separatorTestParentId = item.parentId;
+                            ''')
+                            browser_key('s', {'ctrlKey': True, 'shiftKey': True})
+                            pointer_script('''
+                                const deadline = Date.now() + 10000;
+                                while (Date.now() < deadline) {
+                                    const selected = document.querySelector('[data-bookmark-pane="0"] button[aria-pressed="true"]');
+                                    if (selected?.querySelector('[data-bookmark-separator]') && document.activeElement === selected) {
+                                        window.separatorTestId = selected.closest('[data-bookmark-row]').dataset.bookmarkId;
+                                        const children = await browser.bookmarks.getChildren(window.separatorTestParentId);
+                                        const original = window.separatorTestFocus.closest('[data-bookmark-row]').dataset.bookmarkId;
+                                        if (children[children.findIndex(item => item.id === original) + 1]?.id !== window.separatorTestId) throw new Error('Native separator shortcut inserted at the wrong position');
+                                        return;
+                                    }
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('Browser-level Ctrl+Shift+S did not create and focus a separator');
+                            ''')
+                            if browser_shortcut_state() != shortcut_state:
+                                raise RuntimeError('Ctrl+Shift+S triggered Firefox UI alongside separator creation')
+                            pointer_script('''
+                                await browser.bookmarks.remove(window.separatorTestId);
+                                const deadline = Date.now() + 10000;
+                                while (Date.now() < deadline && document.querySelector(`[data-bookmark-id="${window.separatorTestId}"]`)) await new Promise(resolve => setTimeout(resolve, 20));
+                                window.separatorTestFocus.focus();
+                                delete window.separatorTestFocus;
+                                delete window.separatorTestParentId;
+                                delete window.separatorTestId;
+                            ''')
+                            result['results'].append('Browser-level Ctrl+Shift+S creates and focuses a native separator directly after the active bookmark')
+                            pointer_script('''
+                                window.actionsTestFocus = document.activeElement;
+                                const id = document.activeElement.closest('[data-bookmark-row]').dataset.bookmarkId;
+                                const [item] = await browser.bookmarks.get(id);
+                                window.actionsTestParentId = item.parentId;
+                                window.actionsTestOrder = (await browser.bookmarks.getChildren(item.parentId)).map(item => item.id);
+                            ''')
+                            for selector in [
+                                '[aria-label="Команды"] button[aria-controls="actions-menu"]',
+                                '#actions-menu button[role="menuitem"]'
+                            ]:
+                                action_point = pointer_script('''
+                                    const control = document.querySelector(arguments[0]);
+                                    if (!control || control.disabled) throw new Error('Grouping action is unavailable: ' + arguments[0]);
+                                    control.scrollIntoView({block: 'nearest', inline: 'nearest'});
+                                    const bounds = control.getBoundingClientRect();
+                                    return {x: Math.round(bounds.left + bounds.width / 2), y: Math.round(bounds.top + bounds.height / 2)};
+                                ''', [selector])
+                                pointer_actions([
+                                    {'type': 'pointerMove', **action_point, 'duration': 0},
+                                    {'type': 'pointerDown', 'button': 0},
+                                    {'type': 'pointerUp', 'button': 0}
+                                ])
+                            pointer_script('''
+                                const deadline = Date.now() + 10000;
+                                while (Date.now() < deadline) {
+                                    const rows = [...document.querySelectorAll('[data-bookmark-pane="0"] [data-bookmark-row] .font-semibold')].map(row => row.textContent.trim());
+                                    if (rows.join(',') === '..,Drag B,Drag A,Drag C,Drag D' && document.activeElement === window.actionsTestFocus) {
+                                        if (document.querySelector('#actions-menu')) throw new Error('The actions menu stayed open after grouping');
+                                        for (const [index, id] of window.actionsTestOrder.entries()) await browser.bookmarks.move(id, {index});
+                                        return;
+                                    }
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('Native action menu selection did not group folders and retain focus');
+                            ''')
+                            pointer_script('''
+                                const deadline = Date.now() + 10000;
+                                while (Date.now() < deadline) {
+                                    const ids = [...document.querySelectorAll('[data-bookmark-pane="0"] [data-bookmark-row]')].map(row => row.dataset.bookmarkId).filter(id => id !== '..');
+                                    if (JSON.stringify(ids) === JSON.stringify(window.actionsTestOrder)) {
+                                        delete window.actionsTestFocus;
+                                        delete window.actionsTestOrder;
+                                        delete window.actionsTestParentId;
+                                        return;
+                                    }
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('The native grouping fixture order was not restored');
+                            ''')
+                            result['results'].append('Native mouse selection of the actions menu groups folders at the top and restores the original focused row')
+                            breadcrumb_point = pointer_script('''
+                                const pane = document.querySelector('[data-bookmark-pane="0"]');
+                                const [focused] = await browser.bookmarks.get(document.activeElement.closest('[data-bookmark-row]').dataset.bookmarkId);
+                                const [source] = await browser.bookmarks.get(focused.parentId);
+                                const [parent] = await browser.bookmarks.get(source.parentId);
+                                window.breadcrumbTest = {source, parent, focusedId: focused.id, otherTitle: document.querySelector('[data-bookmark-pane="1"] h2').textContent};
+                                const button = pane.querySelector(`[data-bookmark-breadcrumb="${parent.id}"]`);
+                                button.scrollIntoView({block: 'nearest', inline: 'nearest'});
+                                const bounds = button.getBoundingClientRect();
+                                return {x: Math.round(bounds.left + bounds.width / 2), y: Math.round(bounds.top + bounds.height / 2)};
+                            ''')
+                            pointer_actions([
+                                {'type': 'pointerMove', **breadcrumb_point, 'duration': 0},
+                                {'type': 'pointerDown', 'button': 0},
+                                {'type': 'pointerUp', 'button': 0}
+                            ])
+                            pointer_script('''
+                                const pane = document.querySelector('[data-bookmark-pane="0"]');
+                                const deadline = Date.now() + 10000;
+                                while (Date.now() < deadline) {
+                                    if (pane.querySelector('h2').textContent === window.breadcrumbTest.parent.title && pane.querySelector('[data-bookmark-list]').contains(document.activeElement)) {
+                                        if (document.querySelector('[data-bookmark-pane="1"] h2').textContent !== window.breadcrumbTest.otherTitle) throw new Error('A breadcrumb click changed the other pane');
+                                        pane.querySelector(`[data-bookmark-id="${window.breadcrumbTest.source.id}"] button[aria-pressed]`).dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
+                                        return;
+                                    }
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('A native breadcrumb click did not navigate and restore list focus');
+                            ''')
+                            pointer_script('''
+                                const pane = document.querySelector('[data-bookmark-pane="0"]');
+                                const deadline = Date.now() + 10000;
+                                while (Date.now() < deadline) {
+                                    const row = pane.querySelector(`[data-bookmark-id="${window.breadcrumbTest.focusedId}"] button[aria-pressed]`);
+                                    if (row) { row.focus(); delete window.breadcrumbTest; return; }
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('The native breadcrumb fixture was not restored');
+                            ''')
+                            result['results'].append('A native breadcrumb click navigates within its own pane and returns focus to the bookmark list')
                             help_point = pointer_script('''
                                 window.helpTestFocus = document.activeElement;
                                 window.helpTestScroll = [...document.querySelectorAll('[data-bookmark-list]')].map(list => list.scrollTop);
@@ -696,6 +930,7 @@ def run():
                                 throw new Error('The manager did not mount after restoring the language');
                             ''')
                             result['results'].append(f'The manager restores Russian from extension storage before rendering on {action}')
+                            result['results'].append(pointer_script("return await import('./bookmark-edit.browser.js').then(module => module.verifyRestoredUrlSettings());"))
                         for assertion in result['results']:
                             print('PASS', assertion)
                         print(f"Passed {len(result['results'])} assertions in Firefox")

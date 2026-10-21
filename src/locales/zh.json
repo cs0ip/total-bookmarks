@@ -20,13 +20,16 @@
   "all": "全部",
   "none": "取消全部",
   "selectLabel": "选择：",
-  "createLabel": "创建：",
   "moveLabel": "移动：",
   "bookmarkButton": "书签",
   "folderButton": "文件夹",
+  "separatorButton": "分隔线",
+  "createSeparatorHelp": "在当前面板的焦点项目下方创建分隔线（仅限 Firefox）。",
   "edit": "编辑",
   "editHelp": "编辑当前面板中的焦点书签或文件夹。",
   "delete": "删除",
+  "actions": "操作",
+  "foldersFirst": "将文件夹移到顶部",
   "help": "操作说明",
   "selectAllHelp": "选中当前面板中的所有书签和文件夹。",
   "selectNoneHelp": "取消当前面板中的所有选择。",
@@ -98,5 +101,9 @@
   "openManager": "打开书签管理器",
   "about": "关于",
   "closeAbout": "关闭关于窗口",
-  "author": "作者"
+  "author": "作者",
+  "settings": "设置",
+  "escapeAddresses": "转义网址",
+  "escapeAddress": "转义",
+  "invalidAddress": "请输入有效的网址。"
 }

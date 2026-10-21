@@ -2,11 +2,14 @@
   import { t, type TranslationKey } from './i18n';
   import { onMount } from 'svelte';
   import LanguagePicker from './components/LanguagePicker.svelte';
+  import Settings from './components/Settings.svelte';
+  import { copyUrlSelection } from './bookmarks/url';
   import BookmarkPanels from './components/BookmarkPanels.svelte';
   import { PARENT_FOLDER_ITEM_ID } from './components/BookmarkList.svelte';
   import { iconOrigins } from '@platform/icons';
-  import { getTree, getChildren, getBookmarkChangeEvents, createBookmark, moveBookmark, normalizeBookmark, isProtectedItem, type BookmarkNode } from './platform/bookmarks';
-  import { planMoves, type CreateRequest, type EditRequest, type ItemRequest, type MoveRequest } from './bookmarks/move';
+  import { getTree, getChildren, getBookmarkChangeEvents, createBookmark, moveBookmark, normalizeBookmark, isProtectedItem, supportsSeparators, type BookmarkNode } from './platform/bookmarks';
+  import { planMoves } from './actions/move';
+  import type { CreateRequest, EditRequest, ItemRequest, MoveRequest } from './bookmarks/requests';
 
   type Side = 0 | 1;
   type PaneState = { folderId: string; selectedId: string };
@@ -25,6 +28,7 @@
   let refreshAfterMutation: () => Promise<void> = async () => {};
   let error = $state<TranslationKey | ''>('');
   let languageMenuOpen = $state(false);
+  let settingsOpen = $state(false);
   let iconAccessAllowed = $state<boolean | null>(null);
   let requestingIconAccess = $state(false);
   const manifest = browser.runtime.getManifest();
@@ -64,14 +68,14 @@
     return currentFolder(side)?.children ?? [];
   }
 
-  function folderPath(side: Side): string {
-    const names: string[] = [];
+  function folderPath(side: Side): { id: string; title: string }[] {
+    const folders: { id: string; title: string }[] = [];
     let folder = currentFolder(side);
     while (folder && folder.id !== rootId) {
-      names.push(folder.title || $t('untitled'));
+      folders.push({ id: folder.id, title: folder.title || $t('untitled') });
       folder = findNode(folder.parentId);
     }
-    return names.reverse().join(' / ');
+    return folders.reverse();
   }
 
   function paneView(side: Side) {
@@ -147,12 +151,13 @@
     if (!source?.children || source.unmodifiable) return false;
     return request.ids.every((id) => {
       const item = findNode(id);
-      return item && item.parentId === request.sourceId && !isProtectedItem(item) && item.type !== 'separator';
+      return item && item.parentId === request.sourceId && !isProtectedItem(item);
     });
   }
 
   function canMoveItems(request: MoveRequest): boolean {
     if (!canRemoveItems(request) || request.destinationId === rootId) return false;
+    if (request.ids.some((id) => findNode(id)?.type === 'separator')) return false;
     const destination = findNode(request.destinationId);
     if (!destination?.children || destination.unmodifiable) return false;
     const ids = new Set(request.ids);
@@ -171,13 +176,13 @@
     }));
   }
 
-  function canCreateItem(parentId: string): boolean {
+  function canCreateItem(parentId: string, type: CreateRequest['type'] = 'bookmark'): boolean {
     const folder = findNode(parentId);
-    return !loading && !mutating && parentId !== rootId && !!folder?.children && !folder.unmodifiable;
+    return (type !== 'separator' || supportsSeparators) && !loading && !mutating && parentId !== rootId && !!folder?.children && !folder.unmodifiable;
   }
 
   async function createItem(request: CreateRequest): Promise<string | undefined> {
-    if (!canCreateItem(request.parentId) || !request.title.trim() || (request.type === 'bookmark' && !request.url?.trim())) return;
+    if (!canCreateItem(request.parentId, request.type) || (request.type !== 'separator' && !request.title.trim()) || (request.type === 'bookmark' && !request.url?.trim())) return;
     mutating = true;
     error = '';
     let createdId: string | undefined;
@@ -189,7 +194,7 @@
         parentId: request.parentId,
         index,
         type: request.type,
-        title: request.title.trim(),
+        ...(request.type !== 'separator' ? { title: request.title.trim() } : {}),
         ...(request.type === 'bookmark' ? { url: request.url!.trim() } : {})
       });
       createdId = created.id;
@@ -206,7 +211,7 @@
 
   function canEditItem(id: string): boolean {
     const item = findNode(id);
-    return !!item && canRemoveItems({ sourceId: item.parentId ?? '', ids: [id] });
+    return !!item && item.type !== 'separator' && canRemoveItems({ sourceId: item.parentId ?? '', ids: [id] });
   }
 
   async function editItem(request: EditRequest): Promise<boolean> {
@@ -243,7 +248,7 @@
     try {
       const items = await getChildren(request.sourceId);
       const selected = items.filter((item) => request.ids.includes(item.id));
-      if (selected.length !== new Set(request.ids).size || selected.some((item) => isProtectedItem(item) || item.type === 'separator')) {
+      if (selected.length !== new Set(request.ids).size || selected.some((item) => isProtectedItem(item))) {
         throw new Error('Selected bookmarks cannot be removed');
       }
       for (const item of selected) {
@@ -352,6 +357,8 @@
   });
 </script>
 
+<svelte:document oncopy={copyUrlSelection} />
+
 <svelte:head>
   <title>{$t('pageTitle')}</title>
 </svelte:head>
@@ -365,7 +372,10 @@
         <p class="mt-[3px] text-[#657088]">{$t('subtitle')}</p>
       </div>
     </div>
-    <LanguagePicker onOpenChange={(open) => (languageMenuOpen = open)} />
+    <div class="flex items-center gap-2">
+      <Settings onOpenChange={(open) => (settingsOpen = open)} />
+      <LanguagePicker onOpenChange={(open) => (languageMenuOpen = open)} />
+    </div>
   </header>
 
   {#if iconAccessAllowed === false}
@@ -394,7 +404,8 @@
   {/if}
 
   <BookmarkPanels
-    externalPopupOpen={languageMenuOpen}
+    {supportsSeparators}
+    externalPopupOpen={languageMenuOpen || settingsOpen}
     left={paneView(0)}
     right={paneView(1)}
     loading={loading && roots.length === 0}

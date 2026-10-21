@@ -175,10 +175,6 @@
     onSelect(rows[nextIndex].id);
   }
 
-  function itemTitle(item: BookmarkNode): string {
-    return item.title || (item.type === 'separator' ? $t('separator') : $t('untitled'));
-  }
-
   function openItem(item: BookmarkNode): void {
     if (item.type === 'separator') return;
     if (item.id === PARENT_FOLDER_ITEM_ID) {
@@ -216,25 +212,34 @@
             onFocus={(target) => onItemFocus(item, target)}
             onKeydown={(event) => onItemKeydown(event, item)}
           />
+        {:else if item.type === 'separator'}
+          <button
+            class="flex h-10 min-w-0 flex-1 cursor-pointer items-center border-0 bg-transparent px-[9px] text-left focus:outline-none"
+            type="button"
+            aria-pressed={activeSelectedId === item.id}
+            aria-label={$t('separator')}
+            onclick={() => onSelect(item.id)}
+            onfocus={(event) => onItemFocus(item, event.currentTarget)}
+            onkeydown={(event) => onItemKeydown(event, item)}
+          >
+            <span class="sr-only font-semibold">{$t('separator')}</span>
+            <span data-bookmark-separator aria-hidden="true" class="w-full border-t border-[#b8c1d1]"></span>
+          </button>
         {:else}
           <button
             class="flex min-w-0 flex-1 cursor-pointer items-center gap-[10px] border-0 bg-transparent p-[9px] text-left text-inherit focus:outline-none"
             type="button"
             aria-pressed={activeSelectedId === item.id}
-            aria-label={item.id === PARENT_FOLDER_ITEM_ID ? $t('upOneLevel') : undefined}
+            aria-label={$t('upOneLevel')}
             onclick={() => onSelect(item.id)}
             onfocus={(event) => onItemFocus(item, event.currentTarget)}
             ondblclick={() => openItem(item)}
             onkeydown={(event) => onItemKeydown(event, item)}
           >
-            {#if item.id === PARENT_FOLDER_ITEM_ID}
-              <span class="flex size-[22px] shrink-0 items-center justify-center text-[19px] text-[#34405a]" aria-hidden="true">↑</span>
-            {:else}
-              <span class="w-[22px] shrink-0 text-center text-[18px] text-[#738098]" aria-hidden="true">—</span>
-            {/if}
+            <span class="flex size-[22px] shrink-0 items-center justify-center text-[19px] text-[#34405a]" aria-hidden="true">↑</span>
             <span class="flex min-w-0 flex-col">
-              <span class="truncate font-semibold">{itemTitle(item)}</span>
-              <span class="text-xs text-[#738098]">{item.id === PARENT_FOLDER_ITEM_ID ? $t('parentFolder') : item.type === 'separator' ? $t('separator') : $t('folder')}</span>
+              <span class="truncate font-semibold">{item.title}</span>
+              <span class="text-xs text-[#738098]">{$t('parentFolder')}</span>
             </span>
           </button>
         {/if}

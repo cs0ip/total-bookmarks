@@ -301,6 +301,8 @@ export async function runBookmarkTests() {
       await untilFocused(2);
       assert(document.activeElement === navigationRows[2], 'Repeated ArrowDown moves focus to a separator like any other row');
       assert(!navigationRows[2].parentElement.querySelector('input[type="checkbox"]'), 'Separator rows have no bookmark selection checkbox');
+      const separatorLine = navigationRows[2].querySelector('[data-bookmark-separator]');
+      assert(separatorLine && parseFloat(getComputedStyle(separatorLine).borderTopWidth) > 0 && separatorLine.getBoundingClientRect().width > navigationRows[2].getBoundingClientRect().width * 0.8, 'Existing Firefox separators render as visible horizontal lines across their rows');
       pressArrow('ArrowUp');
       await untilFocused(1);
       assert(document.activeElement === navigationRows[1], 'ArrowUp moves selection and focus to the previous row');

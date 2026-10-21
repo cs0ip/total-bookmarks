@@ -4,13 +4,15 @@
   import { SvelteMap } from 'svelte/reactivity';
   import BookmarkList from './BookmarkList.svelte';
   import CommandBar, { type CommandBarButton } from './CommandBar.svelte';
+  import CommandMenu from './CommandMenu.svelte';
   import BookmarkPropertiesDialog from './BookmarkPropertiesDialog.svelte';
   import KeyboardHelp from './KeyboardHelp.svelte';
   import About from './About.svelte';
-  import type { CreateRequest, EditRequest, ItemRequest, MoveRequest } from '../bookmarks/move';
+  import type { CreateRequest, EditRequest, ItemRequest, MoveRequest } from '../bookmarks/requests';
 
   import type { BookmarkNode } from '../platform/bookmarks';
   type Side = 0 | 1;
+  type Popup = 'create' | 'actions' | 'help' | 'about';
   type MoveDirection = 'up' | 'down' | 'left' | 'right';
   type PanelCommand = CommandBarButton & { key?: string; ctrlKey?: boolean; shiftKey?: boolean; description?: string };
   type FolderState = { markedIds: Set<string>; focusedId: string };
@@ -32,12 +34,13 @@
     folder: BookmarkNode | null;
     items: BookmarkNode[];
     selectedId: string;
-    folderPath: string;
+    folderPath: { id: string; title: string }[];
   };
   type Props = {
     left: PaneView;
     right: PaneView;
     loading: boolean;
+    supportsSeparators: boolean;
     externalPopupOpen?: boolean;
     onSelect: (side: Side, id: string) => void;
     onOpenFolder: (side: Side, id: string) => void;
@@ -46,7 +49,7 @@
     onMoveItems: (request: MoveRequest) => Promise<string[]>;
     canRemoveItems: (request: ItemRequest) => boolean;
     onRemoveItems: (request: ItemRequest) => Promise<void>;
-    canCreateItem: (parentId: string) => boolean;
+    canCreateItem: (parentId: string, type?: CreateRequest['type']) => boolean;
     onCreateItem: (request: CreateRequest) => Promise<string | undefined>;
     canEditItem: (id: string) => boolean;
     onEditItem: (request: EditRequest) => Promise<boolean>;
@@ -56,6 +59,7 @@
     left,
     right,
     loading,
+    supportsSeparators,
     externalPopupOpen = false,
     onSelect,
     onOpenFolder,
@@ -71,9 +75,11 @@
   }: Props = $props();
 
   let panels: HTMLDivElement;
+  let commandBar = $state<HTMLDivElement>();
   let activeSide = $state<Side>(0);
   let mutating = $state(false);
-  let popupOpen = $state<'help' | 'about' | null>(null);
+  let popupOpen = $state<Popup | null>(null);
+  const popupIds = { create: 'create-menu', actions: 'actions-menu', help: 'keyboard-help', about: 'about-app' };
   let properties = $state<PropertiesDialogState>();
   const commandsDisabled = $derived(loading || mutating || properties !== undefined);
   let leftShare = $state(0.5);
@@ -87,6 +93,40 @@
   const folderStates = [new SvelteMap<string, FolderState>(), new SvelteMap<string, FolderState>()];
   const emptyMarkedIds = new Set<string>();
   const lists: ({ focusSelected: (reveal?: boolean) => void; selectRangeTo: (id: string) => void; insertionAt: (y: number) => { afterId?: string; top: number } } | undefined)[] = [];
+  const creationCommands: PanelCommand[] = $derived([
+    {
+      title: $t('bookmarkButton'),
+      description: $t('createBookmarkHelp'),
+      key: 'b',
+      ctrlKey: true,
+      disabled: commandsDisabled || !canCreateItem((activeSide === 0 ? left : right).folder?.id ?? ''),
+      action: () => openCreation('bookmark')
+    },
+    {
+      title: $t('folderButton'),
+      description: $t('createFolderHelp'),
+      key: 'f',
+      ctrlKey: true,
+      shiftKey: true,
+      disabled: commandsDisabled || !canCreateItem((activeSide === 0 ? left : right).folder?.id ?? ''),
+      action: () => openCreation('folder')
+    },
+    ...(supportsSeparators ? [{
+      title: $t('separatorButton'),
+      description: $t('createSeparatorHelp'),
+      key: 's',
+      ctrlKey: true,
+      shiftKey: true,
+      disabled: commandsDisabled || !canCreateItem((activeSide === 0 ? left : right).folder?.id ?? '', 'separator'),
+      action: createSeparator
+    }] : [])
+  ]);
+  const foldersFirstMove = $derived(foldersFirstRequest());
+  const actionCommands: PanelCommand[] = $derived([{
+    title: $t('foldersFirst'),
+    disabled: commandsDisabled || !foldersFirstMove || !canMoveItems(foldersFirstMove),
+    action: moveFoldersFirst
+  }]);
   const commands: PanelCommand[] = $derived([
     moveButton('up', $t('moveUp')),
     moveButton('down', $t('moveDown')),
@@ -111,30 +151,19 @@
       action: clearSelection
     },
     {
-      title: $t('bookmarkButton'),
-      description: $t('createBookmarkHelp'),
-      key: 'b',
-      ctrlKey: true,
+      title: $t('create'),
       separatorBefore: true,
-      labelBefore: $t('createLabel'),
-      disabled: commandsDisabled || !canCreateItem((activeSide === 0 ? left : right).folder?.id ?? ''),
-      action: () => openCreation('bookmark')
-    },
-    {
-      title: $t('folderButton'),
-      description: $t('createFolderHelp'),
-      key: 'f',
-      ctrlKey: true,
-      shiftKey: true,
-      disabled: commandsDisabled || !canCreateItem((activeSide === 0 ? left : right).folder?.id ?? ''),
-      action: () => openCreation('folder')
+      popupId: 'create-menu',
+      popupType: 'menu',
+      expanded: popupOpen === 'create',
+      disabled: creationCommands.every((command) => command.disabled),
+      action: () => togglePopup('create')
     },
     {
       title: $t('edit'),
       description: $t('editHelp'),
       key: 'e',
       ctrlKey: true,
-      separatorBefore: true,
       disabled: commandsDisabled || !canEditItem((activeSide === 0 ? left : right).selectedId),
       action: openEditing
     },
@@ -145,6 +174,15 @@
       ctrlKey: false,
       disabled: commandsDisabled || !canRemoveItems(removeRequest()),
       action: removeSelected
+    },
+    {
+      title: $t('actions'),
+      separatorBefore: true,
+      popupId: 'actions-menu',
+      popupType: 'menu',
+      expanded: popupOpen === 'actions',
+      disabled: commandsDisabled,
+      action: () => togglePopup('actions')
     },
     {
       title: $t('help'),
@@ -165,12 +203,13 @@
       action: () => togglePopup('about')
     }
   ]);
-  const commandShortcuts = $derived(commands.filter((command) => command.key).map((command) => ({
+  const allCommands = $derived(commands.flatMap((command) => command.popupId === 'create-menu' ? creationCommands : command.popupId === 'actions-menu' ? actionCommands : [command]));
+  const commandShortcuts = $derived(allCommands.filter((command) => command.key).map((command) => ({
     keys: [command.ctrlKey ? 'Ctrl' : '', command.shiftKey ? 'Shift' : '', ({ ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Delete: 'Del' } as Record<string, string>)[command.key!] ?? command.key!.toUpperCase()].filter(Boolean).join('+'),
     description: command.description ?? command.title
   })));
 
-  function togglePopup(popup: 'help' | 'about'): void {
+  function togglePopup(popup: Popup): void {
     if (popupOpen === popup) void closePopup();
     else { cancelItemDrag(); popupOpen = popup; }
   }
@@ -179,6 +218,12 @@
     popupOpen = null;
     await tick();
     if (document.hasFocus() && paneSideFor(document.activeElement) === undefined) focusActivePane(false);
+  }
+
+  function chooseMenuCommand(command: CommandBarButton): void {
+    if (command.disabled) return;
+    popupOpen = null;
+    void command.action();
   }
 
   function markedIdsFor(pane: PaneView): Set<string> {
@@ -198,6 +243,25 @@
     if (commandsDisabled || !item || item.type === 'separator' || !canEditItem(item.id)) return;
     cancelItemDrag();
     properties = { mode: 'edit', kind: item.type, side: pane.side, id: item.id, title: item.title, url: item.url };
+  }
+
+  async function createSeparator(): Promise<void> {
+    const pane = activeSide === 0 ? left : right;
+    if (commandsDisabled || !pane.folder || !canCreateItem(pane.folder.id, 'separator')) return;
+    const parentId = pane.folder.id;
+    const afterId = pane.selectedId;
+    cancelItemDrag();
+    mutating = true;
+    try {
+      const id = await onCreateItem({ parentId, afterId, type: 'separator' });
+      await tick();
+      const current = pane.side === 0 ? left : right;
+      if (id && current.folder?.id === parentId) selectItem(current, id);
+    } finally {
+      mutating = false;
+      await tick();
+      focusActivePane();
+    }
   }
 
   async function closeProperties(): Promise<void> {
@@ -229,15 +293,15 @@
     }
   }
 
-  function selectedIds(pane: PaneView): string[] {
+  function selectedIds(pane: PaneView, includeSeparators = false): string[] {
     const marked = pane.items.filter((item) => markedIdsFor(pane).has(item.id));
-    const focused = pane.items.find((item) => item.id === pane.selectedId && item.type !== 'separator');
+    const focused = pane.items.find((item) => item.id === pane.selectedId && (includeSeparators || item.type !== 'separator'));
     return marked.length ? marked.map((item) => item.id) : focused ? [focused.id] : [];
   }
 
   function removeRequest(): ItemRequest {
     const pane = activeSide === 0 ? left : right;
-    return { sourceId: pane.folder?.id ?? '', ids: selectedIds(pane) };
+    return { sourceId: pane.folder?.id ?? '', ids: selectedIds(pane, true) };
   }
 
   function clearSelection(): void {
@@ -277,6 +341,22 @@
       direction: direction === 'up' || direction === 'down' ? direction : undefined,
       afterId: destination.selectedId
     };
+  }
+
+  function foldersFirstRequest(): MoveRequest | undefined {
+    const pane = activeSide === 0 ? left : right;
+    if (!pane.folder) return;
+    const ids = pane.items.filter((item) => item.type === 'folder').map((item) => item.id);
+    if (ids.every((id, index) => pane.items[index]?.id === id)) return;
+    return { sourceId: pane.folder.id, destinationId: pane.folder.id, ids };
+  }
+
+  async function moveFoldersFirst(): Promise<void> {
+    const request = foldersFirstRequest();
+    if (commandsDisabled || !request || !canMoveItems(request)) return;
+    await performMove(activeSide, activeSide, request);
+    await tick();
+    focusActivePane(false);
   }
 
   function moveButton(direction: MoveDirection, title: string): PanelCommand {
@@ -457,6 +537,13 @@
     onSelect(pane.side, focusedId);
   }
 
+  async function openBreadcrumb(pane: PaneView, id: string): Promise<void> {
+    activeSide = pane.side;
+    openFolder(pane, id);
+    await tick();
+    focusActivePane();
+  }
+
   function paneSideFor(target: EventTarget | null): Side | undefined {
     if (!(target instanceof Element)) return;
     const pane = target.closest<HTMLElement>('[data-bookmark-pane]');
@@ -464,8 +551,8 @@
     return pane.dataset.bookmarkPane === '0' ? 0 : 1;
   }
 
-  function isLanguagePickerTarget(target: EventTarget | null): boolean {
-    return target instanceof Element && target.closest('[data-language-picker]') !== null;
+  function isHeaderControlTarget(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest('[data-language-picker], [data-settings]') !== null;
   }
 
   function focusActivePane(reveal = true): void {
@@ -527,25 +614,25 @@
     function onDocumentFocus(event: FocusEvent): void {
       const side = paneSideFor(event.target);
       if (side !== undefined) activeSide = side;
-      else if (!isLanguagePickerTarget(event.target)) focusActivePane();
+      else if (!isHeaderControlTarget(event.target)) focusActivePane();
     }
 
     async function restoreFocus(event: FocusEvent): Promise<void> {
       // Firefox can run microtasks between focusout and the new control's focusin.
-      if (isLanguagePickerTarget(event.relatedTarget)) return;
+      if (isHeaderControlTarget(event.relatedTarget)) return;
       await tick();
       // Browser tabs and native permission dialogs keep their own focus.
-      if (mounted && !properties && document.hasFocus() && !isLanguagePickerTarget(document.activeElement) && paneSideFor(document.activeElement) === undefined) focusActivePane();
+      if (mounted && !properties && document.hasFocus() && !isHeaderControlTarget(document.activeElement) && paneSideFor(document.activeElement) === undefined) focusActivePane();
     }
 
     function onDocumentMousedown(event: MouseEvent): void {
       if (properties) return;
-      if (isLanguagePickerTarget(event.target)) {
+      if (isHeaderControlTarget(event.target)) {
         if (popupOpen) void closePopup();
         return;
       }
       if (popupOpen) {
-        const id = popupOpen === 'help' ? 'keyboard-help' : 'about-app';
+        const id = popupIds[popupOpen];
         if (event.target instanceof Element && event.target.closest(`#${id}`)) return;
         if (event.target instanceof Element && event.target.closest(`button[aria-controls="${id}"]`)) { event.preventDefault(); return; }
         void closePopup();
@@ -573,7 +660,7 @@
       if (!event.altKey && !event.metaKey) {
         // Physical letter keys keep the shortcuts available in other layouts.
         const key = event.code.startsWith('Key') ? event.code.slice(3).toLowerCase() : event.key.toLowerCase();
-        const command = commands.find((command) =>
+        const command = allCommands.find((command) =>
           command.key?.toLowerCase() === key && command.ctrlKey === event.ctrlKey && Boolean(command.shiftKey) === event.shiftKey
         );
         if (command) {
@@ -643,6 +730,7 @@
   style:--right-width={`${1 - leftShare}fr`}
 >
   {#each [left, right] as pane (pane.side)}
+    {@const path = pane.folderPath.map((folder) => folder.title).join(' / ')}
     <section
       class="flex min-h-[360px] min-w-0 max-h-[calc(100vh-180px)] flex-col overflow-hidden rounded-xl border border-[#dce2ed] bg-white max-[700px]:min-h-[260px] max-[700px]:max-h-[45vh]"
       aria-label={pane.side === 0 ? $t('leftPane') : $t('rightPane')}
@@ -676,9 +764,17 @@
       />
 
       <footer class="border-t border-[#e6eaf1] px-4 py-[10px] text-[#69748b]">
-        <div class="folder-path" title={pane.folderPath} aria-label={$t('folderPath', { path: pane.folderPath })}>
-          <span dir="ltr">{pane.folderPath || '\u00a0'}</span>
-        </div>
+        <nav class="folder-path" title={path} aria-label={$t('folderPath', { path })}>
+          <!-- Path separators supply all whitespace between the inline segments. -->
+          <span dir="ltr">{#each pane.folderPath as folder, index (folder.id)}{#if index > 0}{' / '}{/if}{#if index === pane.folderPath.length - 1}<span aria-current="page">{folder.title}</span>{:else}<button
+                type="button"
+                tabindex="-1"
+                data-bookmark-breadcrumb={folder.id}
+                disabled={loading}
+                onclick={() => void openBreadcrumb(pane, folder.id)}
+                class="cursor-pointer rounded-sm underline decoration-[#b8c1d1] underline-offset-2 hover:text-[#5f44b4] focus-visible:outline-2 focus-visible:outline-[#5f44b4] disabled:cursor-not-allowed"
+              >{folder.title}</button>{/if}{:else}{'\u00a0'}{/each}</span>
+        </nav>
       </footer>
     </section>
 
@@ -712,8 +808,20 @@
   </div>
 {/if}
 
-<div class="relative shrink-0">
+<div bind:this={commandBar} class="relative shrink-0">
   <CommandBar buttons={commands} label={$t('moveLabel')} />
+  {#if popupOpen === 'create' || popupOpen === 'actions'}
+    {#key popupOpen}
+      <CommandMenu
+        id={popupIds[popupOpen]}
+        label={popupOpen === 'create' ? $t('create') : $t('actions')}
+        anchor={commandBar?.querySelector<HTMLButtonElement>(`button[aria-controls="${popupIds[popupOpen]}"]`) ?? null}
+        items={popupOpen === 'create' ? creationCommands : actionCommands}
+        onChoose={chooseMenuCommand}
+        onClose={() => void closePopup()}
+      />
+    {/key}
+  {/if}
   {#if popupOpen === 'help'}<KeyboardHelp commands={commandShortcuts} onClose={() => void closePopup()} />{/if}
   {#if popupOpen === 'about'}<About onClose={() => void closePopup()} />{/if}
 </div>

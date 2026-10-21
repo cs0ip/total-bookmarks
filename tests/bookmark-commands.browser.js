@@ -44,9 +44,45 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     open(right, target.title);
     await until(() => row(left, 'Command F') && row(right, 'Target 3'));
     const bar = document.querySelector('[aria-label="Команды"]');
-    assert([...bar.querySelectorAll('button')].map((button) => button.getAttribute('aria-label')).join(',') === 'Переместить вверх,Переместить вниз,Переместить влево,Переместить вправо,Всё,Ничего,Закладку,Папку,Редактировать,Удалить,Управление,О программе' && bar.getBoundingClientRect().top >= Math.max(left.getBoundingClientRect().bottom, right.getBoundingClientRect().bottom), 'Movement, selection, creation, editing, delete, help and about commands appear in the configured order below both panels');
-    assert([...bar.querySelectorAll('button')].slice(0, 4).map((button) => button.textContent.trim()).join('') === '↑↓←→' && bar.textContent.includes('Переместить:') && bar.textContent.includes('Выделить:') && bar.textContent.split('|').length === 6 && command('Всё').previousElementSibling.textContent === 'Выделить:' && command('Закладку').previousElementSibling.textContent === 'Создать:' && command('Редактировать').previousElementSibling.textContent === '|' && command('Удалить').previousElementSibling === command('Редактировать') && command('Управление').previousElementSibling.textContent === '|' && command('Управление').textContent.includes('?') && command('О программе').previousElementSibling.textContent === '|' && command('О программе').querySelector('img').getAttribute('src') === './icons/logo.svg', 'Command groups have compact captions, arrow buttons, separators, a help icon and an application logo');
-    assert([...bar.querySelectorAll('button')].filter((button) => !['Всё', 'Закладку', 'Папку', 'Управление', 'О программе'].includes(button.getAttribute('aria-label'))).every((button) => button.disabled) && !command('Всё').disabled && !command('Закладку').disabled && !command('Папку').disabled && !command('Управление').disabled && !command('О программе').disabled, 'Selection, creation, help and about remain available when both panes have unmarked items and their parent entries focused');
+    const menu = () => document.querySelector('#create-menu');
+    const previousMenuFocus = document.activeElement;
+    const menuScroll = [left, right].map((pane) => pane.querySelector('[data-bookmark-list]').scrollTop);
+    clickCommand('Создать');
+    await until(() => menu()?.contains(document.activeElement));
+    const menuItems = [...menu().querySelectorAll('[role="menuitem"]')];
+    const menuBounds = menu().getBoundingClientRect();
+    assert(menuItems.map((button) => button.textContent.trim()).join(',') === 'Закладку,Папку,Разделитель' && command('Создать').getAttribute('aria-haspopup') === 'menu' && command('Создать').getAttribute('aria-expanded') === 'true', 'The single create button opens an accessible menu with the three original commands');
+    assert(document.activeElement === menuItems[0] && menuBounds.top >= 0 && menuBounds.bottom <= innerHeight && menuBounds.left >= 0 && menuBounds.right <= innerWidth, 'The creation menu focuses its first item and fits within the viewport');
+    function menuKey(key) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      document.activeElement.dispatchEvent(event);
+      return event.defaultPrevented;
+    }
+    assert(menuKey('End') && document.activeElement === menuItems[2] && menuKey('ArrowDown') && document.activeElement === menuItems[0] && menuKey('ArrowDown') && document.activeElement === menuItems[1] && menuKey('Home') && document.activeElement === menuItems[0], 'Arrows and Home/End navigate the creation menu without changing panel rows');
+    assert(menuKey('Escape'), 'Escape closes the creation menu');
+    await until(() => !menu() && document.activeElement === previousMenuFocus);
+    assert([left, right].every((pane, index) => pane.querySelector('[data-bookmark-list]').scrollTop === menuScroll[index]) && command('Создать').getAttribute('aria-expanded') === 'false', 'Closing the creation menu restores pane focus without scrolling either list');
+    clickCommand('Создать');
+    await until(() => menu()?.contains(document.activeElement));
+    clickCommand('Создать');
+    await until(() => !menu() && document.activeElement === previousMenuFocus);
+    clickCommand('Создать');
+    await until(() => menu()?.contains(document.activeElement));
+    await focus(right, 'Target 2');
+    await until(() => !menu());
+    assert(document.activeElement === row(right, 'Target 2'), 'Focusing a row outside the creation menu dismisses it and preserves the chosen row');
+    parentRow(right).focus();
+    await until(() => selectedRow(right) === parentRow(right));
+    previousMenuFocus.focus();
+    await until(() => document.activeElement === previousMenuFocus);
+    clickCommand('Создать');
+    await until(() => menu()?.contains(document.activeElement));
+    menuKey('Tab');
+    await until(() => !menu() && document.activeElement === previousMenuFocus);
+    assert(true, 'Tab dismisses the creation menu and restores the original pane focus');
+    assert([...bar.querySelectorAll('button')].map((button) => button.getAttribute('aria-label')).join(',') === 'Переместить вверх,Переместить вниз,Переместить влево,Переместить вправо,Всё,Ничего,Создать,Редактировать,Удалить,Действия,Управление,О программе' && bar.getBoundingClientRect().top >= Math.max(left.getBoundingClientRect().bottom, right.getBoundingClientRect().bottom), 'Movement, selection, creation, editing, delete, help and about commands appear in the configured order below both panels');
+    assert([...bar.querySelectorAll('button')].slice(0, 4).map((button) => button.textContent.trim()).join('') === '↑↓←→' && bar.textContent.includes('Переместить:') && bar.textContent.includes('Выделить:') && bar.textContent.split('|').length === 6 && command('Всё').previousElementSibling.textContent === 'Выделить:' && command('Создать').previousElementSibling.textContent === '|' && !bar.textContent.includes('Создать:') && command('Редактировать').previousElementSibling === command('Создать') && command('Удалить').previousElementSibling === command('Редактировать') && command('Действия').previousElementSibling.textContent === '|' && command('Действия').previousElementSibling.previousElementSibling === command('Удалить') && command('Управление').previousElementSibling.textContent === '|' && command('Управление').textContent.includes('?') && command('О программе').previousElementSibling.textContent === '|' && command('О программе').querySelector('img').getAttribute('src') === './icons/logo.svg', 'Command groups have compact captions, arrow buttons, separators, a help icon and an application logo');
+    assert([...bar.querySelectorAll('button')].filter((button) => !['Всё', 'Создать', 'Действия', 'Управление', 'О программе'].includes(button.getAttribute('aria-label'))).every((button) => button.disabled) && !command('Всё').disabled && !command('Создать').disabled && !command('Управление').disabled && !command('О программе').disabled, 'Selection, creation, help and about remain available when both panes have unmarked items and their parent entries focused');
     const help = () => document.querySelector('[data-keyboard-help]');
     const helpContent = () => document.querySelector('[data-keyboard-help-content]');
     const previousFocus = document.activeElement;
@@ -55,7 +91,7 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     const helpBounds = help().getBoundingClientRect();
     const keys = [...help().querySelectorAll('kbd')].map((key) => key.textContent.trim());
     assert(help().getAttribute('aria-modal') === 'false' && command('Управление').getAttribute('aria-expanded') === 'true' && helpBounds.top >= 0 && helpBounds.bottom <= bar.getBoundingClientRect().top && helpContent().scrollHeight > helpContent().clientHeight, 'Help opens above the command bar as a nonmodal scrollable popup within the viewport');
-    assert(['↑ / ↓', '← / →', 'Tab / Shift+Tab', 'Home / End', 'Enter', 'Backspace', 'Пробел', 'Insert / Shift+↓', 'Shift+↑', 'Shift+Home', 'Shift+End', 'Ctrl+↑', 'Ctrl+↓', 'Ctrl+←', 'Ctrl+→', 'Ctrl+A', 'Ctrl+D', 'Ctrl+B', 'Ctrl+Shift+F', 'Ctrl+E', 'Del', 'Esc'].every((key) => keys.includes(key)) && help().textContent.includes('Повторное выделение снимает отметку'), 'Help lists all list and command shortcuts with current folder creation binding and selection toggle semantics');
+    assert(['↑ / ↓', '← / →', 'Tab / Shift+Tab', 'Home / End', 'Enter', 'Backspace', 'Пробел', 'Insert / Shift+↓', 'Shift+↑', 'Shift+Home', 'Shift+End', 'Ctrl+↑', 'Ctrl+↓', 'Ctrl+←', 'Ctrl+→', 'Ctrl+A', 'Ctrl+D', 'Ctrl+B', 'Ctrl+Shift+F', 'Ctrl+Shift+S', 'Ctrl+E', 'Del', 'Esc'].every((key) => keys.includes(key)) && help().textContent.includes('Повторное выделение снимает отметку'), 'Help lists all list and command shortcuts with current folder creation binding and selection toggle semantics');
     assert(!pressCommand('ArrowRight', { ctrlKey: false }) && !pressCommand('a') && !left.querySelector('input:checked') && !right.querySelector('input:checked') && document.activeElement === helpContent(), 'Keyboard input in help does not switch panes or execute background selection commands');
     assert(pressCommand('Escape', { ctrlKey: false }), 'Escape is consumed by the help popup');
     await until(() => !help() && document.activeElement === previousFocus);
@@ -200,6 +236,10 @@ export async function runBookmarkCommandTests({ fixtures, left, right, row, pare
     results.push(...await runBookmarkCreationTests({ fixtures, left, right, row, parentRow, checkbox, selectedRow, open, until, command, clickCommand, pressCommand, focus, mark }));
     const { runBookmarkEditingTests } = await import('./bookmark-edit.browser.js');
     results.push(...await runBookmarkEditingTests({ fixtures, left, right, until }));
+    const { runBookmarkActionTests } = await import('./bookmark-actions.browser.js');
+    results.push(...await runBookmarkActionTests({ fixtures, left, right, until, separators: true }));
+    const { runBreadcrumbTests } = await import('./bookmark-breadcrumbs.browser.js');
+    results.push(...await runBreadcrumbTests({ fixtures, left, right, until }));
     for (const pane of [left, right]) {
       if (pane.querySelector('h2').textContent !== fixtures.title) parentRow(pane).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     }

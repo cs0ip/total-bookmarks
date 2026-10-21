@@ -37,7 +37,7 @@ export async function runChromeTests() {
   assert(true, 'Language switching updates the UI and persists the choice in Chrome storage');
   assert(!document.body.textContent.includes('Разрешить загрузку иконок'), 'Chrome does not request website access for favicons');
   assert(selected(0) && selected(1), 'Chrome root folders render with a focused row in each pane');
-  assert(command('Закладку').disabled, 'The browser root cannot receive newly created items');
+  assert(command('Создать').disabled, 'The browser root cannot receive newly created items');
   assert(command('Редактировать').disabled, 'Chrome system folders cannot be edited');
   const [root] = await browser.bookmarks.getTree();
   const toolbar = root.children.find((item) => item.folderType === 'bookmarks-bar') ?? root.children[0];
@@ -55,10 +55,29 @@ export async function runChromeTests() {
     }
     const { runBookmarkEditingTests } = await import('./bookmark-edit.browser.js');
     results.push(...await runBookmarkEditingTests({ fixtures, left: pane(0), right: pane(1), until }));
+    const { runBookmarkActionTests } = await import('./bookmark-actions.browser.js');
+    results.push(...await runBookmarkActionTests({ fixtures, left: pane(0), right: pane(1), until }));
+    const { runBreadcrumbTests } = await import('./bookmark-breadcrumbs.browser.js');
+    results.push(...await runBreadcrumbTests({ fixtures, left: pane(0), right: pane(1), until }));
     for (const side of [0, 1]) open(side, side === 0 ? 'Chrome left' : 'Chrome right');
     await until(() => row(0, 'Chrome C') && selected(1));
     assert(pane(1).querySelectorAll('button[aria-pressed]').length === 1, 'An empty Chrome folder remains navigable through the parent row');
-    assert(!command('Закладку').disabled, 'Chrome folders permit creation even without native children/type properties');
+    assert(!command('Создать').disabled, 'Chrome folders permit creation even without native children/type properties');
+    command('Создать').click();
+    await until(() => document.querySelector('#create-menu')?.contains(document.activeElement));
+    const creationItems = [...document.querySelectorAll('#create-menu button')];
+    assert(creationItems.map((item) => item.textContent.trim()).join(',') === 'Закладку,Папку', 'The creation menu hides unsupported separator actions in Chrome');
+    key('End');
+    assert(document.activeElement === creationItems[1], 'Creation menu keyboard navigation ends at the last supported action in Chrome');
+    key('Escape');
+    await until(() => !document.querySelector('#create-menu'));
+    const separatorShortcut = key('s', { code: 'KeyS', ctrlKey: true, shiftKey: true });
+    assert(!separatorShortcut.defaultPrevented && !document.querySelector('dialog'), 'The unsupported separator shortcut leaves browser defaults available in Chrome');
+    command('Управление').click();
+    await until(() => document.querySelector('[data-keyboard-help]'));
+    assert(![...document.querySelectorAll('[data-keyboard-help] kbd')].some((key) => key.textContent.trim() === 'Ctrl+Shift+S'), 'Shortcut help hides the unsupported separator command in Chrome');
+    key('Escape');
+    await until(() => !document.querySelector('[data-keyboard-help]'));
     await focus(0, 'Chrome B');
     const icon = row(0, 'Chrome B').querySelector('img');
     await until(() => icon.complete && icon.naturalWidth > 0);
@@ -86,10 +105,12 @@ export async function runChromeTests() {
     await until(() => !document.querySelector('dialog') && row(0, 'Created Chrome folder'));
     const children = await browser.bookmarks.getChildren(left.id);
     assert(children[children.findIndex((item) => item.title === 'Chrome A') + 1]?.title === 'Created Chrome folder', 'The folder dialog creates through the adapter and inserts after the focused Chrome row');
-    command('Закладку').click();
+    command('Создать').click();
+    await until(() => document.querySelector('#create-menu')?.contains(document.activeElement));
+    document.querySelector('#create-menu button[aria-label="Закладку"]').click();
     await until(() => document.querySelector('dialog[open]'));
     for (const [name, value] of [['title', 'Created Chrome bookmark'], ['url', 'https://example.test/new']]) {
-      const input = document.querySelector(`dialog input[name="${name}"]`);
+      const input = document.querySelector(`dialog [name="${name}"]`);
       input.value = value;
       input.dispatchEvent(new Event('input', { bubbles: true }));
     }

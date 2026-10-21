@@ -104,3 +104,51 @@ test('Storage failures are logged and leave the interface usable', async () => {
   assert.equal(stores.get(app.t)('help'), 'Controls');
   assert.deepEqual(app.errors.map(([message]) => message), ['Failed to restore the language preference', 'Failed to save the language preference']);
 });
+
+async function initializeSettings(saved, write) {
+  const key = 'total-bookmarks:settings';
+  const values = new Map(saved === undefined ? [] : [[key, saved]]);
+  const exports = {};
+  const code = ts.transpileModule(readFileSync(new URL('../src/settings.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
+  }).outputText;
+  runInNewContext(code, {
+    exports, console, require: () => stores,
+    browser: { storage: { local: {
+      get: async (name) => ({ [name]: values.get(name) }),
+      set: async (data) => { if (write) await write(data[key]); values.set(key, data[key]); }
+    } } }
+  });
+  await exports.initializeSettings();
+  return { ...exports, values, key };
+}
+
+test('Address escaping defaults off and restores each valid preference independently', async () => {
+  for (const saved of [undefined, null, {}, { escapeAddresses: 'true', escapeAddressInDialog: 1 }]) {
+    const api = await initializeSettings(saved);
+    assert.deepEqual(JSON.parse(JSON.stringify(stores.get(api.settings))), { escapeAddresses: false, escapeAddressInDialog: false });
+  }
+  for (const saved of [{ escapeAddresses: true, escapeAddressInDialog: false }, { escapeAddresses: false, escapeAddressInDialog: true }]) {
+    const api = await initializeSettings(saved);
+    assert.deepEqual(JSON.parse(JSON.stringify(stores.get(api.settings))), saved);
+  }
+});
+
+test('Rapid independent address preference changes persist in order and survive initialization', async () => {
+  const writes = [];
+  const api = await initializeSettings(undefined, async (value) => {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    writes.push(JSON.parse(JSON.stringify(value)));
+  });
+  const first = api.setSetting('escapeAddresses', true);
+  const second = api.setSetting('escapeAddressInDialog', true);
+  const third = api.setSetting('escapeAddresses', false);
+  await Promise.all([first, second, third]);
+  assert.deepEqual(writes, [
+    { escapeAddresses: true, escapeAddressInDialog: false },
+    { escapeAddresses: true, escapeAddressInDialog: true },
+    { escapeAddresses: false, escapeAddressInDialog: true }
+  ]);
+  const restored = await initializeSettings(api.values.get(api.key));
+  assert.deepEqual(JSON.parse(JSON.stringify(stores.get(restored.settings))), writes.at(-1));
+});

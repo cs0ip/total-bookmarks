@@ -1,29 +1,5 @@
 import type { BookmarkNode } from '../platform/bookmarks';
-
-export type ItemRequest = {
-  sourceId: string;
-  ids: string[];
-};
-
-export type MoveRequest = ItemRequest & {
-  destinationId: string;
-  direction?: 'up' | 'down';
-  afterId?: string;
-};
-
-export type CreateRequest = {
-  parentId: string;
-  afterId?: string;
-  type: 'bookmark' | 'folder';
-  title: string;
-  url?: string;
-};
-
-export type EditRequest = {
-  id: string;
-  title: string;
-  url?: string;
-};
+import type { MoveRequest } from '../bookmarks/requests';
 
 export function planMoves(source: BookmarkNode[], destination: BookmarkNode[], request: MoveRequest) {
   const selected = new Set(request.ids);

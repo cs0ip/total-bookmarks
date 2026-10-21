@@ -59,7 +59,10 @@ export async function runLanguageTests() {
   assert(checkbox.checked && rows().every((row, index) => row === selectedRows[index]) && headings().every((heading, index) => heading === folderHeadings[index] || heading === '所有书签') && panes.every((pane, index) => pane.querySelector('[data-bookmark-list]').scrollTop === scroll[index]), 'Switching languages preserves folders, row identities, selections and scroll positions');
 
   await choose('en');
-  command('Bookmark').click();
+  command('Create').click();
+  await until(() => document.querySelector('#create-menu')?.contains(document.activeElement));
+  assert([...document.querySelectorAll('#create-menu button')].map((button) => button.textContent.trim()).join(',') === 'Bookmark,Folder,Separator', 'The creation menu uses the selected interface language');
+  document.querySelector('#create-menu button[aria-label="Bookmark"]').click();
   await until(() => document.querySelector('dialog[open]'));
   assert(document.querySelector('dialog h2').textContent === 'Create bookmark' && document.querySelector('dialog').textContent.includes('URL'), 'Creation dialogs use the selected language');
   document.querySelector('dialog button[type="button"]').click();

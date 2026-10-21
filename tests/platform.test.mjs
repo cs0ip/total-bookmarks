@@ -14,6 +14,38 @@ function load(path, target, browser, require = () => { throw new Error('Unexpect
 }
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
+test('URL display decodes every escape and retains malformed sequences', () => {
+  const { readableUrl } = load('src/bookmarks/url.ts');
+  for (const value of [
+    'https://example.test/%D0%BC%D0%B8%D1%80%20%2F%3F%23%26%3D%25%252F?q=%E4%B8%AD%E6%96%87%2B%26#%F0%9F%98%80',
+    'https://example.test/%D0%B0%09%0A%0D%C2%A0%E2%80%AE%EF%BB%BF'
+  ]) assert.equal(readableUrl(value), decodeURIComponent(value));
+  for (const malformed of ['https://example.test/%', 'https://example.test/%D0%ZZ', 'https://example.test/%FF', 'https://example.test/%E2%82']) {
+    assert.equal(readableUrl(malformed), malformed);
+  }
+});
+
+test('Editing and copying decoded URLs preserve the original meaning of reserved characters', () => {
+  const { readableUrl, editUrl, escapedUrl, encodedUrlSelection } = load('src/bookmarks/url.ts');
+  const encoded = 'https://example.test/%D0%BC%D0%B8%D1%80%20%2F%23%25%252F%09%0A%0D?q=%E4%B8%AD%E6%96%87%26x%3D1#%F0%9F%98%80';
+  const display = readableUrl(encoded);
+  assert.equal(editUrl(encoded, display, false), encoded);
+  assert.equal(editUrl(encoded, display.replace('мир', 'привет'), false), encoded.replace(encodeURIComponent('мир'), encodeURIComponent('привет')));
+  assert.equal(editUrl(encoded, encoded, true), encoded);
+  assert.equal(encodedUrlSelection(encoded, 0, display.length, false), encoded);
+  const start = display.indexOf('мир');
+  assert.equal(encodedUrlSelection(encoded, start, start + 3, false), encodeURIComponent('мир'));
+  assert.equal(encodedUrlSelection(encoded, display.length - 2, display.length, false), '%F0%9F%98%80');
+  assert.equal(encodedUrlSelection(encoded, 0, encoded.length, true), encoded);
+  assert.equal(editUrl('', 'https://example.test/новый путь/%2F', false), 'https://example.test/%D0%BD%D0%BE%D0%B2%D1%8B%D0%B9%20%D0%BF%D1%83%D1%82%D1%8C/%252F');
+  assert.equal(escapedUrl('http://[::1]/中文 %20%\n'), 'http://[::1]/%E4%B8%AD%E6%96%87%20%20%25%0A');
+  const multiline = encoded + '%0D%0A%0D';
+  const fieldText = readableUrl(multiline, true);
+  assert.equal(fieldText, readableUrl(multiline).replace(/\r\n?/g, '\n'));
+  assert.equal(editUrl(multiline, fieldText.replace('мир', 'Мир'), false, true), multiline.replace('%D0%BC', '%D0%9C'));
+  assert.equal(encodedUrlSelection(multiline, 0, fieldText.length, false, true), multiline);
+});
+
 for (const target of ['firefox', 'chrome']) {
   test(`${target}: subscribe only to supported bookmark change events`, () => {
     const commonEvents = ['created', 'removed', 'changed', 'moved'].map((name) => ({ name }));
@@ -62,8 +94,14 @@ for (const target of ['firefox', 'chrome']) {
       assert.deepEqual(calls[i], expected);
     }
     if (target === 'chrome') {
+      assert.equal(api.supportsSeparators, false);
       await assert.rejects(api.createBookmark({ type: 'separator' }), /does not support/);
       assert.equal(calls.length, 2);
+    } else {
+      assert.equal(api.supportsSeparators, true);
+      const separator = { parentId: 'bar', index: 1, type: 'separator' };
+      assert.equal((await api.createBookmark(separator)).type, 'separator');
+      assert.deepEqual(calls[2], separator);
     }
   });
 }

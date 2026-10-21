@@ -20,13 +20,16 @@
   "all": "All",
   "none": "None",
   "selectLabel": "Select:",
-  "createLabel": "Create:",
   "moveLabel": "Move:",
   "bookmarkButton": "Bookmark",
   "folderButton": "Folder",
+  "separatorButton": "Separator",
+  "createSeparatorHelp": "Create a separator below the focused item in the active pane (Firefox only).",
   "edit": "Edit",
   "editHelp": "Edit the focused bookmark or folder in the active pane.",
   "delete": "Delete",
+  "actions": "Actions",
+  "foldersFirst": "Move folders to the top",
   "help": "Controls",
   "selectAllHelp": "Select all bookmarks and folders in the active pane.",
   "selectNoneHelp": "Clear all selections in the active pane.",
@@ -98,5 +101,9 @@
   "openManager": "Open bookmark manager",
   "about": "About",
   "closeAbout": "Close about window",
-  "author": "Author"
+  "author": "Author",
+  "settings": "Settings",
+  "escapeAddresses": "Escape addresses",
+  "escapeAddress": "Escape",
+  "invalidAddress": "Enter a valid address."
 }

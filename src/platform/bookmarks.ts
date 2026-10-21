@@ -10,6 +10,8 @@ type NativeNode = Omit<browser.bookmarks.BookmarkTreeNode, 'children'> & {
   folderType?: string;
 };
 
+export const supportsSeparators = __BROWSER_TARGET__ === 'firefox';
+
 export function normalizeBookmark(node: NativeNode): BookmarkNode {
   const { children, ...details } = node;
   const type = node.type ?? (node.url === undefined ? 'folder' : 'bookmark');

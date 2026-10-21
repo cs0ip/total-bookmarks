@@ -5,8 +5,13 @@ export async function runBookmarkCreationTests({ fixtures, left, right, row, par
     results.push(message);
   };
   const dialog = () => document.querySelector('[data-bookmark-create-dialog]');
-  const input = (name) => dialog().querySelector(`input[name="${name}"]`);
+  const input = (name) => dialog().querySelector(`[name="${name}"]`);
   const submit = () => dialog().querySelector('button[type="submit"]').click();
+  async function chooseCreation(title) {
+    clickCommand('Создать');
+    await until(() => document.querySelector('#create-menu')?.contains(document.activeElement));
+    document.querySelector(`#create-menu button[aria-label="${title}"]`).click();
+  }
   async function field(name, value) {
     input(name).value = value;
     input(name).dispatchEvent(new Event('input', { bubbles: true }));
@@ -14,7 +19,7 @@ export async function runBookmarkCreationTests({ fixtures, left, right, row, par
   }
   async function show(title, shortcut = false) {
     if (shortcut) assert(pressCommand(title === 'Закладку' ? 'b' : 'f', { shiftKey: title === 'Папку' }), 'Creation shortcut overrides the browser default and opens the shared modal');
-    else clickCommand(title);
+    else await chooseCreation(title);
     await until(() => dialog()?.open && document.activeElement === input('title'));
   }
   const order = (pane) => [...pane.querySelectorAll('[data-bookmark-row]')].filter((node) => node.dataset.bookmarkId !== '..')
@@ -59,11 +64,14 @@ export async function runBookmarkCreationTests({ fixtures, left, right, row, par
     await field('url', 'not a URL');
     submit();
     assert(calls === 0 && !input('url').checkValidity(), 'An invalid address cannot create a bookmark');
-    await field('url', 'about:blank?created=1');
+    const createdUrl = 'https://example.test/Новая закладка?query=中文';
+    await field('url', createdUrl);
+    let createdDetails;
     const gate = new Promise((resolve) => { release = resolve; });
     let held = false;
     browser.bookmarks.create = async (...args) => {
       calls++;
+      createdDetails = args[0];
       const node = await originalCreate(...args);
       held = true;
       await gate;
@@ -76,12 +84,12 @@ export async function runBookmarkCreationTests({ fixtures, left, right, row, par
     release();
     await until(() => !dialog() && row(left, 'Created bookmark') && document.activeElement === row(left, 'Created bookmark'));
     const persisted = await browser.bookmarks.getChildren(source.id);
-    assert(order(left).join(',') === 'Create A,Created bookmark,Create B,Create C' && persisted[1].url === 'about:blank?created=1' && checkbox(left, 'Create A').checked && checkbox(right, 'Create R1').checked && !checkbox(left, 'Created bookmark').checked, 'A bookmark is persisted immediately below the left focused row, receives focus and preserves existing marks');
+    assert(order(left).join(',') === 'Create A,Created bookmark,Create B,Create C' && persisted[1].url === encodeURI(createdUrl) && createdDetails.url === encodeURI(createdUrl) && checkbox(left, 'Create A').checked && checkbox(right, 'Create R1').checked && !checkbox(left, 'Created bookmark').checked, 'A bookmark is persisted immediately below the left focused row, receives focus and preserves existing marks');
     browser.bookmarks.create = async (...args) => { calls++; return originalCreate(...args); };
 
     await focus(right, 'Create R1');
     await show('Папку', true);
-    assert(dialog().querySelector('h2').textContent === 'Создать папку' && !dialog().querySelector('input[name="url"]'), 'Folder creation asks only for its name');
+    assert(dialog().querySelector('h2').textContent === 'Создать папку' && !dialog().querySelector('[name="url"]'), 'Folder creation asks only for its name');
     await field('title', 'Created folder');
     submit();
     await until(() => !dialog() && document.activeElement === row(right, 'Created folder'));
@@ -120,6 +128,56 @@ export async function runBookmarkCreationTests({ fixtures, left, right, row, par
     submit();
     await until(() => !dialog() && row(right, 'Created after retry'));
     assert(!document.querySelector('[role="alert"]') && order(right).join(',') === 'Created in empty,Created after retry', 'Retrying creation clears the error and inserts exactly one item at the original position');
+
+    const separatorRow = (pane) => pane.querySelector('[data-bookmark-separator]')?.closest('button');
+    const separatorCount = (pane) => pane.querySelectorAll('[data-bookmark-separator]').length;
+    await focus(left, 'Create A');
+    let separatorDetails;
+    const separatorGate = new Promise((resolve) => { release = resolve; });
+    browser.bookmarks.create = async (details) => {
+      separatorDetails = details;
+      const node = await originalCreate(details);
+      await separatorGate;
+      return node;
+    };
+    await chooseCreation('Разделитель');
+    await until(() => separatorDetails);
+    assert(separatorDetails.type === 'separator' && !('title' in separatorDetails) && !('url' in separatorDetails) && !dialog() && command('Создать').disabled, 'The separator menu item creates a native separator without a properties dialog and blocks repeated submission');
+    pressCommand('s', { code: 'KeyS', shiftKey: true, repeat: true });
+    release();
+    await until(() => separatorCount(left) === 1 && !command('Создать').disabled && document.activeElement === separatorRow(left));
+    const withSeparator = await browser.bookmarks.getChildren(source.id);
+    const separator = withSeparator[withSeparator.findIndex((item) => item.title === 'Create A') + 1];
+    assert(separator.type === 'separator' && separatorRow(left).parentElement.dataset.bookmarkId === separator.id && checkbox(left, 'Create A').checked, 'A separator is inserted after the left focused row, receives focus and retains existing marks');
+    assert(!separatorRow(left).parentElement.querySelector('input') && command('Редактировать').disabled, 'A focused separator has no checkbox or editable properties');
+    const separatorIndex = withSeparator.findIndex((item) => item.id === separator.id);
+    separatorRow(left).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    separatorRow(left).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    assert(left.querySelector('h2').textContent === source.title && !dialog(), 'Enter and double-click do not open a separator');
+    browser.bookmarks.create = originalCreate;
+    parentRow(right).focus();
+    await until(() => document.activeElement === parentRow(right));
+    assert(pressCommand('ы', { code: 'KeyS', shiftKey: true }), 'Ctrl+Shift+S uses the physical key with a Russian keyboard layout');
+    await until(() => separatorCount(right) === 1 && document.activeElement === separatorRow(right));
+    const rightFolderId = (await browser.bookmarks.get(separatorRow(right).parentElement.dataset.bookmarkId))[0].parentId;
+    assert((await browser.bookmarks.getChildren(rightFolderId))[0].type === 'separator' && separatorCount(left) === 1, 'The separator shortcut inserts at the beginning of the right folder when its parent row is focused');
+    browser.bookmarks.create = async () => { throw new Error('Injected separator creation failure'); };
+    await chooseCreation('Разделитель');
+    await until(() => document.querySelector('[role="alert"]') && !command('Создать').disabled);
+    assert(separatorCount(right) === 1 && document.activeElement === separatorRow(right), 'Failed separator creation preserves the focused row and allows retry');
+    browser.bookmarks.create = originalCreate;
+    await chooseCreation('Разделитель');
+    await until(() => separatorCount(right) === 2 && !command('Создать').disabled);
+    assert(!document.querySelector('[role="alert"]') && (await browser.bookmarks.getChildren(source.id))[separatorIndex].id === separator.id, 'Retrying separator creation clears the error and preserves the other folder order');
+    const emptyForSeparator = await originalCreate({ parentId: rightFolderId, title: 'Empty separator folder' });
+    await until(() => row(right, emptyForSeparator.title));
+    open(right, emptyForSeparator.title);
+    await until(() => right.querySelector('h2').textContent === emptyForSeparator.title);
+    await chooseCreation('Разделитель');
+    await until(() => separatorCount(right) === 1 && document.activeElement === separatorRow(right));
+    assert((await browser.bookmarks.getChildren(emptyForSeparator.id)).length === 1, 'A separator can be the first and only item in an empty folder');
+    parentRow(right).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await until(() => right.querySelector('h2').textContent === 'Created folder');
 
     parentRow(left).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     parentRow(right).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));

@@ -18,6 +18,8 @@ try {
   await cp(new URL('../dist/chrome/', import.meta.url), extension, { recursive: true });
   await cp(new URL('./chrome.browser.js', import.meta.url), join(extension, 'chrome.browser.js'));
   await cp(new URL('./bookmark-edit.browser.js', import.meta.url), join(extension, 'bookmark-edit.browser.js'));
+  await cp(new URL('./bookmark-actions.browser.js', import.meta.url), join(extension, 'bookmark-actions.browser.js'));
+  await cp(new URL('./bookmark-breadcrumbs.browser.js', import.meta.url), join(extension, 'bookmark-breadcrumbs.browser.js'));
   await cp(new URL('./bookmark-drag.browser.js', import.meta.url), join(extension, 'bookmark-drag.browser.js'));
   const manifest = JSON.parse(await readFile(join(extension, 'manifest.json'), 'utf8'));
   const { publicKey } = generateKeyPairSync('rsa', { modulusLength: 1024 });
@@ -72,6 +74,13 @@ try {
   }
   if (!worker) throw new Error(`The Chrome extension service worker did not start: ${log}`);
   const background = await connect(worker);
+  // A service-worker target can appear before its extension execution context is ready.
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const ready = await background.send('Runtime.evaluate', { expression: "typeof browser !== 'undefined'", returnByValue: true });
+    if (ready.result?.value) break;
+    if (attempt === 99) throw new Error('The Chrome worker extension API did not initialize');
+    await sleep(50);
+  }
   const opened = await background.send('Runtime.evaluate', {
     expression: "browser.tabs.create({url:browser.runtime.getURL('index.html')})", awaitPromise: true, returnByValue: true
   });
@@ -102,6 +111,7 @@ try {
   });
   if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
   for (const assertion of result.result.value) console.log(`PASS ${assertion}`);
+  await client.send('Runtime.evaluate', { expression: "browser.storage.local.set({'total-bookmarks:settings': {escapeAddresses: true, escapeAddressInDialog: true}})", awaitPromise: true });
   await client.send('Page.reload');
   await sleep(500);
   const restored = await client.send('Runtime.evaluate', {
@@ -114,6 +124,8 @@ try {
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
     return result.result.value;
   }
+  console.log(`PASS ${await evaluate("import('./bookmark-edit.browser.js').then(module => module.verifyRestoredUrlSettings())")}`);
+  count++;
   await evaluate("import('./bookmark-drag.browser.js').then(async module => { window.dragTests = module; await module.prepare(); })");
   try {
     for (const name of ['reorder', 'right', 'left', 'empty', 'cycle', 'escape', 'outside', 'parent', 'same-folder', 'scroll']) {

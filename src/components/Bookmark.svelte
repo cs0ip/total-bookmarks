@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { BookmarkNode } from '../platform/bookmarks';
   import { t } from '../i18n';
+  import { settings } from '../settings';
+  import { escapedUrl, readableUrl } from '../bookmarks/url';
   import Favicons from './Favicons.svelte';
   type Props = {
     bookmark: BookmarkNode;
@@ -14,6 +16,8 @@
   };
   let { bookmark, checked, focused, onCheckedChange, onSelect, onOpen, onFocus, onKeydown }: Props = $props();
   const folder = $derived(bookmark.type === 'folder' || !bookmark.url);
+  const encodedUrl = $derived(escapedUrl(bookmark.url ?? ''));
+  const displayedUrl = $derived($settings.escapeAddresses ? encodedUrl : readableUrl(encodedUrl));
 </script>
 
 <input
@@ -40,7 +44,7 @@
       {#if folder}
         <span class="text-xs text-[#738098]">{$t('folder')}</span>
       {:else}
-        <span class="truncate text-left text-xs text-[#738098]" dir="ltr" title={bookmark.url}>{bookmark.url}</span>
+        <span class="truncate text-left text-xs text-[#738098]" dir="ltr" title={displayedUrl} data-url-encoded={encodedUrl} data-url-escaped={$settings.escapeAddresses}>{displayedUrl}</span>
       {/if}
     </span>
   </span>
