@@ -555,6 +555,23 @@ def run():
                                 while (!(await browser.storage.local.get('total-bookmarks:settings'))['total-bookmarks:settings']?.escapeAddresses && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
                                 if (!document.querySelector('[data-escape-addresses]').checked || document.activeElement !== document.querySelector('[data-escape-addresses]')) throw new Error('Native setting change lost its value or focus');
                             ''')
+                            for hidden in [True, False]:
+                                native_click('[data-hide-folder-drop-targets]')
+                                pointer_script('''
+                                    const expected = arguments[0];
+                                    const deadline = Date.now() + 5000;
+                                    while (Date.now() < deadline) {
+                                        const saved = (await browser.storage.local.get('total-bookmarks:settings'))['total-bookmarks:settings'];
+                                        if (saved?.hideFolderDropTargets === expected && saved.escapeAddresses) {
+                                            const toggle = document.querySelector('[data-hide-folder-drop-targets]');
+                                            if (toggle?.checked !== expected || document.activeElement !== toggle) throw new Error('Folder drop setting lost its value or focus');
+                                            return;
+                                        }
+                                        await new Promise(resolve => setTimeout(resolve, 20));
+                                    }
+                                    throw new Error('Folder drop setting was not persisted');
+                                ''', [hidden])
+                            result['results'].append('Native clicks toggle and persist folder drop visibility while keeping focus inside settings')
                             browser_key('KEY_Escape')
                             pointer_script('''
                                 if (document.querySelector('#settings-popup') || document.activeElement !== window.settingsTestFocus) throw new Error('Settings did not restore pane focus after native Escape');
@@ -850,6 +867,103 @@ def run():
                                 throw new Error('The native grouping fixture order was not restored');
                             ''')
                             result['results'].append('Native mouse selection of the actions menu groups folders at the top and restores the original focused row')
+                            pointer_script('''
+                                window.sortTestFocus = document.activeElement;
+                                const [item] = await browser.bookmarks.get(document.activeElement.closest('[data-bookmark-row]').dataset.bookmarkId);
+                                window.sortTestParentId = item.parentId;
+                                window.sortTestOrder = (await browser.bookmarks.getChildren(item.parentId)).map(item => item.id);
+                            ''')
+                            native_click('button[aria-controls="actions-menu"]')
+                            native_click('#actions-menu button[aria-label="Сортировка"]')
+                            pointer_script('''
+                                const dialog = document.querySelector('[data-sort-dialog]');
+                                if (!dialog?.open || document.activeElement !== dialog.querySelector('input[value="name"]')) throw new Error('Native sorting action did not open and focus its modal dialog');
+                            ''')
+                            for criterion in ['name', 'date', 'url', 'domain']:
+                                native_click(f'[data-sort-dialog] input[name="sort-by"][value="{criterion}"]')
+                                pointer_script("""
+                                    const control = document.querySelector(`[data-sort-dialog] input[name="sort-by"][value="${arguments[0]}"]`);
+                                    const ignoreCase = document.querySelector('[data-sort-dialog] input[name="ignore-case"]');
+                                    if (!control.checked || document.activeElement !== control || Boolean(ignoreCase) !== (arguments[0] === 'name')) throw new Error('Sorting options do not match the active criterion');
+                                    if (!document.querySelector('[data-sort-dialog] input[name="sort-order"][value="forward"]').checked) throw new Error('Shared sort order changed when switching criteria');
+                                """, [criterion])
+                                for direction in ['reverse', 'forward']:
+                                    native_click(f'[data-sort-dialog] input[name="sort-order"][value="{direction}"]')
+                                    pointer_script("""
+                                        const control = document.querySelector(`[data-sort-dialog] input[name="sort-order"][value="${arguments[0]}"]`);
+                                        if (!control.checked || document.activeElement !== control) throw new Error('Native shared sort order choice lost its value or focus');
+                                    """, [direction])
+                            native_click('[data-sort-dialog] input[name="sort-by"][value="name"]')
+                            result['results'].append('Native shared sort order controls work for names, dates, URLs and domains and keep focus inside the dialog')
+                            native_click('[data-sort-dialog] input[name="only-selected"]')
+                            pointer_script('''
+                                const control = document.querySelector('[data-sort-dialog] input[name="only-selected"]');
+                                if (!control.checked || document.activeElement !== control) throw new Error('Native selected-only sorting choice lost its value or focus');
+                            ''')
+                            native_click('[data-sort-dialog] input[name="group-selected"]')
+                            pointer_script('''
+                                const control = document.querySelector('[data-sort-dialog] input[name="group-selected"]');
+                                if (!control.checked || document.activeElement !== control) throw new Error('Native selection grouping choice lost its value or focus');
+                            ''')
+                            native_click('[data-sort-dialog] input[name="only-selected"]')
+                            pointer_script('''
+                                if (document.querySelector('[data-sort-dialog] input[name="group-selected"]')) throw new Error('Selection grouping remained visible while sorting the entire folder');
+                            ''')
+                            result['results'].append('Native clicks toggle selected-only sorting while keeping focus inside the dialog')
+                            for name in ['ignore-case', 'separate-folders']:
+                                native_click(f'[data-sort-dialog] input[name="{name}"]')
+                                pointer_script('''
+                                    const control = document.querySelector(`[data-sort-dialog] input[name="${arguments[0]}"]`);
+                                    if (control.checked || document.activeElement !== control) throw new Error('Native sorting preference change lost its value or focus');
+                                ''', [name])
+                            native_click('[data-sort-dialog] button[type="button"]')
+                            pointer_script('''
+                                if (document.querySelector('[data-sort-dialog]') || document.activeElement !== window.sortTestFocus) throw new Error('Cancelling sorting did not restore pane focus');
+                                const ids = (await browser.bookmarks.getChildren(window.sortTestParentId)).map(item => item.id);
+                                if (JSON.stringify(ids) !== JSON.stringify(window.sortTestOrder)) throw new Error('Cancelling sorting changed bookmark order');
+                            ''')
+                            result['results'].append('Native sorting controls keep dialog focus; cancelling preserves the folder order and restores the focused row')
+                            native_click('button[aria-controls="actions-menu"]')
+                            native_click('#actions-menu button[aria-label="Сортировка"]')
+                            pointer_script('''
+                                const dialog = document.querySelector('[data-sort-dialog]');
+                                if (dialog.querySelector('[name="ignore-case"]').checked || dialog.querySelector('[name="separate-folders"]').checked || dialog.querySelector('[name="folder-position"]')) throw new Error('The sorting dialog did not retain preferences and hide inactive folder placement after reopening');
+                            ''')
+                            for name in ['ignore-case', 'separate-folders']:
+                                native_click(f'[data-sort-dialog] input[name="{name}"]')
+                            native_click('[data-sort-dialog] input[name="folder-position"][value="last"]')
+                            native_click('[data-sort-dialog] button[type="submit"]')
+                            pointer_script('''
+                                const deadline = Date.now() + 10000;
+                                while (Date.now() < deadline) {
+                                    const titles = [...document.querySelectorAll('[data-bookmark-pane="0"] [data-bookmark-row] .font-semibold')].map(node => node.textContent.trim());
+                                    if (!document.querySelector('[data-sort-dialog]') && titles.join(',') === '..,Drag A,Drag C,Drag D,Drag B' && document.activeElement === window.sortTestFocus) {
+                                        for (const [index, id] of window.sortTestOrder.entries()) await browser.bookmarks.move(id, {index});
+                                        return;
+                                    }
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('Native sorting confirmation did not reorder the current folder');
+                            ''')
+                            native_click('button[aria-controls="actions-menu"]')
+                            native_click('#actions-menu button[aria-label="Сортировка"]')
+                            native_click('[data-sort-dialog] input[name="folder-position"][value="first"]')
+                            native_click('[data-sort-dialog] button[type="button"]')
+                            pointer_script('''
+                                const deadline = Date.now() + 10000;
+                                while (Date.now() < deadline) {
+                                    const ids = [...document.querySelectorAll('[data-bookmark-pane="0"] [data-bookmark-row]')].map(row => row.dataset.bookmarkId).filter(id => id !== '..');
+                                    if (JSON.stringify(ids) === JSON.stringify(window.sortTestOrder)) {
+                                        delete window.sortTestFocus;
+                                        delete window.sortTestParentId;
+                                        delete window.sortTestOrder;
+                                        return;
+                                    }
+                                    await new Promise(resolve => setTimeout(resolve, 20));
+                                }
+                                throw new Error('The native sorting fixture order was not restored');
+                            ''')
+                            result['results'].append('Native sorting confirmation puts sorted folders below bookmarks and restores the original focused row')
                             breadcrumb_point = pointer_script('''
                                 const pane = document.querySelector('[data-bookmark-pane="0"]');
                                 const [focused] = await browser.bookmarks.get(document.activeElement.closest('[data-bookmark-row]').dataset.bookmarkId);
@@ -930,7 +1044,7 @@ def run():
                                 delete window.helpTestScroll;
                             ''')
                             result['results'].append('Browser-level Escape closes nonmodal shortcut help and restores pane focus')
-                            for case in ['reorder', 'right', 'left', 'empty', 'cycle', 'escape', 'outside', 'parent', 'same-folder', 'scroll']:
+                            for case in ['reorder', 'right', 'left', 'empty', 'cycle', 'escape', 'outside', 'parent', 'same-folder', 'scroll', 'folder-end', 'folder-start', 'folder-empty', 'folder-cross', 'folder-cycle', 'folder-cancel']:
                                 points = pointer_script('return await window.dragTests.startCase(arguments[0]);', [case])
                                 pointer_actions([
                                     {'type': 'pointerMove', **points['start'], 'duration': 0},
@@ -938,7 +1052,11 @@ def run():
                                     {'type': 'pointerMove', **points['end'], 'duration': 200}
                                 ])
                                 result['results'].append(pointer_script('return await window.dragTests.verifyHover(arguments[0]);', [case]))
-                                if case in ['escape', 'scroll']:
+                                inside = pointer_script('return window.dragTests.folderDropPoint(arguments[0]);', [case])
+                                if inside:
+                                    pointer_actions([{'type': 'pointerMove', **inside, 'duration': 200}])
+                                    result['results'].append(pointer_script('return await window.dragTests.verifyFolderHover();'))
+                                if case in ['escape', 'scroll', 'folder-cycle', 'folder-cancel']:
                                     command('WebDriver:PerformActions', {'actions': [{
                                         'type': 'key', 'id': 'drag-keyboard', 'actions': [
                                             {'type': 'keyDown', 'value': '\ue00c'},

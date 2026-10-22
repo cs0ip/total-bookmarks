@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { t, type TranslationKey } from './i18n';
+  import { t, locale, type TranslationKey } from './i18n';
   import { onMount } from 'svelte';
   import LanguagePicker from './components/LanguagePicker.svelte';
   import Settings from './components/Settings.svelte';
@@ -9,7 +9,8 @@
   import { iconOrigins } from '@platform/icons';
   import { getTree, getChildren, getBookmarkChangeEvents, createBookmark, moveBookmark, normalizeBookmark, isProtectedItem, supportsSeparators, type BookmarkNode } from './platform/bookmarks';
   import { planMoves } from './actions/move';
-  import type { CreateRequest, EditRequest, ItemRequest, MoveRequest } from './bookmarks/requests';
+  import { planSort } from './actions/sort';
+  import type { CreateRequest, EditRequest, ItemRequest, MoveRequest, SortRequest } from './bookmarks/requests';
 
   type Side = 0 | 1;
   type PaneState = { folderId: string; selectedId: string };
@@ -175,6 +176,11 @@
     }));
   }
 
+  function canSortFolder(parentId: string): boolean {
+    const children = findNode(parentId)?.children;
+    return !!children && children.length > 1 && canMoveItems({ sourceId: parentId, destinationId: parentId, ids: children.map((item) => item.id) });
+  }
+
   function canCreateItem(parentId: string, type: CreateRequest['type'] = 'bookmark'): boolean {
     const folder = findNode(parentId);
     return (type !== 'separator' || supportsSeparators) && !loading && !mutating && parentId !== rootId && !!folder?.children && !folder.unmodifiable;
@@ -300,6 +306,28 @@
     return result;
   }
 
+  async function sortFolder(request: SortRequest): Promise<boolean> {
+    if (!canSortFolder(request.parentId)) return false;
+    mutating = true;
+    error = '';
+    let success = false;
+    try {
+      const items = await getChildren(request.parentId);
+      if (items.some(isProtectedItem)) throw new Error('The folder contains protected bookmarks');
+      for (const move of planSort(items, request, $locale, request.ids)) {
+        await moveBookmark(move.id, { parentId: request.parentId, index: move.index });
+      }
+      success = true;
+    } catch (cause) {
+      console.error('Failed to sort the bookmark folder', cause);
+    } finally {
+      mutating = false;
+      await refreshAfterMutation();
+      if (!success) error = 'sortError';
+    }
+    return success;
+  }
+
   onMount(() => {
     let active = true;
     let pending = true;
@@ -419,5 +447,7 @@
     onCreateItem={createItem}
     {canEditItem}
     onEditItem={editItem}
+    {canSortFolder}
+    onSortFolder={sortFolder}
   />
 </main>

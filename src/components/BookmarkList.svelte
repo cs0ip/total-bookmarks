@@ -16,6 +16,7 @@
     loading?: boolean;
     active?: boolean;
     dropMarkerTop?: number;
+    folderDrop?: { id: string; position?: 'start' | 'end' };
     draggedIds?: ReadonlySet<string>;
     onActivate: () => void;
     onSelect: (id: string) => void;
@@ -24,7 +25,7 @@
     onOpenBookmark: (url: string) => void | Promise<void>;
   };
 
-  let { items, selectedId, markedIds, parentFolderId, loading = false, active = false, dropMarkerTop, draggedIds, onActivate, onSelect, onMarkedIdsChange, onOpenFolder, onOpenBookmark }: Props = $props();
+  let { items, selectedId, markedIds, parentFolderId, loading = false, active = false, dropMarkerTop, folderDrop, draggedIds, onActivate, onSelect, onMarkedIdsChange, onOpenFolder, onOpenBookmark }: Props = $props();
   let list: HTMLDivElement;
   let preservingViewport = false;
   let previousRows: BookmarkNode[] | undefined;
@@ -200,7 +201,7 @@
     <p class="m-0 px-[14px] py-[30px] text-center text-[#758097]">{$t('emptyFolder')}</p>
   {:else}
     {#each rows as item (item.id)}
-      <div data-bookmark-row data-bookmark-id={item.id} class:dragged={draggedIds?.has(item.id)} class={`flex min-w-0 items-center gap-1 rounded-lg focus-within:outline-2 focus-within:outline-offset-0 focus-within:outline-[#5f44b4] ${activeSelectedId === item.id ? 'bg-[#ebe6fb]' : markedIds.has(item.id) ? 'bg-[#f1f6fd]' : 'hover:bg-[#f5f6fb]'}`}>
+      <div data-bookmark-row data-bookmark-id={item.id} class:dragged={draggedIds?.has(item.id)} class={`relative flex min-w-0 items-center gap-1 rounded-lg focus-within:z-1 focus-within:outline-2 focus-within:outline-offset-0 focus-within:outline-[#5f44b4] ${activeSelectedId === item.id ? 'bg-[#ebe6fb]' : markedIds.has(item.id) ? 'bg-[#f1f6fd]' : 'hover:bg-[#f5f6fb]'}`}>
         {#if item.id !== PARENT_FOLDER_ITEM_ID && item.type !== 'separator'}
           <Bookmark
             bookmark={item}
@@ -250,6 +251,18 @@
               <span class="text-xs text-[#738098]">{$t('parentFolder')}</span>
             </span>
           </button>
+        {/if}
+        {#if folderDrop?.id === item.id}
+          <div data-folder-drop aria-hidden="true" class="pointer-events-none absolute inset-y-1 right-[6px] z-10 flex max-w-[calc(100%-12px)] items-stretch gap-1 bg-white text-xs text-[#5f44b4] shadow-[-6px_0_6px_white]">
+            <span class="self-center px-1 text-center leading-tight whitespace-pre-line">{$t('moveInside')}</span>
+            {#each ['end', 'start'] as position}
+              <span
+                data-folder-drop-position={position}
+                data-active={folderDrop.position === position}
+                class={`pointer-events-auto flex items-center justify-center border border-[#5f44b4] px-2 whitespace-nowrap ${folderDrop.position === position ? 'bg-[#5f44b4] text-white' : 'bg-[#f4f1fc]'}`}
+              >{$t(position === 'end' ? 'moveToEnd' : 'moveToStart')}</span>
+            {/each}
+          </div>
         {/if}
       </div>
     {/each}

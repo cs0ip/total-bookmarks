@@ -9,7 +9,9 @@ export function planMoves(source: BookmarkNode[], destination: BookmarkNode[], r
   const sameFolder = request.sourceId === request.destinationId;
   const remaining = destination.filter((item) => !selected.has(item.id)).map((item) => item.id);
   let insertionIndex: number;
-  if (request.direction) {
+  if (request.position) {
+    insertionIndex = request.position === 'end' ? remaining.length : 0;
+  } else if (request.direction) {
     const first = source.findIndex((item) => selected.has(item.id));
     const last = source.findIndex((item) => item.id === ids.at(-1));
     insertionIndex = request.direction === 'up' ? Math.max(0, first - 1) : Math.min(remaining.length, last - ids.length + 2);

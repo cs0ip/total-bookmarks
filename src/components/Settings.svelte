@@ -39,10 +39,14 @@
     </svg>
   </button>
   {#if open}
-    <div id="settings-popup" role="dialog" aria-label={$t('settings')} tabindex="-1" onkeydown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); } }} class="absolute top-full right-0 z-50 mt-2 w-max max-w-[calc(100vw-32px)] rounded-lg border border-[#d5dbea] bg-white p-4 text-[#34405a] shadow-lg">
+    <div id="settings-popup" role="dialog" aria-label={$t('settings')} tabindex="-1" onkeydown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); } }} class="absolute top-full right-0 z-50 mt-2 flex w-max max-w-[calc(100vw-32px)] flex-col gap-3 rounded-lg border border-[#d5dbea] bg-white p-4 text-[#34405a] shadow-lg">
       <label class="flex cursor-pointer items-center gap-3">
         <input type="checkbox" role="switch" data-escape-addresses checked={$settings.escapeAddresses} onchange={(event) => { void setSetting('escapeAddresses', event.currentTarget.checked); }} class="size-4 cursor-pointer accent-[#5f44b4]" />
         {$t('escapeAddresses')}
+      </label>
+      <label class="flex cursor-pointer items-center gap-3">
+        <input type="checkbox" role="switch" data-hide-folder-drop-targets checked={$settings.hideFolderDropTargets} onchange={(event) => { void setSetting('hideFolderDropTargets', event.currentTarget.checked); }} class="size-4 shrink-0 cursor-pointer accent-[#5f44b4]" />
+        {$t('hideFolderDropTargets')}
       </label>
     </div>
   {/if}

@@ -1,14 +1,16 @@
 <script lang="ts">
   import { t } from '../i18n';
+  import { settings } from '../settings';
   import { onMount, tick, untrack } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import BookmarkList from './BookmarkList.svelte';
   import CommandBar, { type CommandBarButton } from './CommandBar.svelte';
   import CommandMenu from './CommandMenu.svelte';
   import BookmarkPropertiesDialog from './BookmarkPropertiesDialog.svelte';
+  import SortDialog from './SortDialog.svelte';
   import KeyboardHelp from './KeyboardHelp.svelte';
   import About from './About.svelte';
-  import type { CreateRequest, EditRequest, ItemRequest, MoveRequest } from '../bookmarks/requests';
+  import type { CreateRequest, EditRequest, ItemRequest, MoveRequest, SortOptions, SortRequest } from '../bookmarks/requests';
 
   import type { BookmarkNode } from '../platform/bookmarks';
   type Side = 0 | 1;
@@ -28,7 +30,7 @@
     startX: number;
     startY: number;
   };
-  type DropTarget = { side: Side; request: MoveRequest; top: number };
+  type DropTarget = { side: Side; request: MoveRequest; top?: number };
   type PaneView = {
     side: Side;
     folder: BookmarkNode | null;
@@ -53,6 +55,8 @@
     onCreateItem: (request: CreateRequest) => Promise<string | undefined>;
     canEditItem: (id: string) => boolean;
     onEditItem: (request: EditRequest) => Promise<boolean>;
+    canSortFolder: (parentId: string) => boolean;
+    onSortFolder: (request: SortRequest) => Promise<boolean>;
   };
 
   let {
@@ -71,7 +75,9 @@
     canCreateItem,
     onCreateItem,
     canEditItem,
-    onEditItem
+    onEditItem,
+    canSortFolder,
+    onSortFolder
   }: Props = $props();
 
   let panels: HTMLDivElement;
@@ -81,12 +87,15 @@
   let popupOpen = $state<Popup | null>(null);
   const popupIds = { create: 'create-menu', actions: 'actions-menu', help: 'keyboard-help', about: 'about-app' };
   let properties = $state<PropertiesDialogState>();
-  const commandsDisabled = $derived(loading || mutating || properties !== undefined);
+  let sorting = $state<{ side: Side; parentId: string; title: string; ids: string[] }>();
+  const modalOpen = $derived(properties !== undefined || sorting !== undefined);
+  const commandsDisabled = $derived(loading || mutating || modalOpen);
   let leftShare = $state(0.5);
   let drag = $state<{ pointerId: number; offset: number } | null>(null);
   let pendingItemDrag: ItemDrag | undefined;
   let itemDrag = $state<ItemDrag>();
   let dropTarget = $state<DropTarget>();
+  let hoveredFolder = $state<{ side: Side; id: string }>();
   let dragPoint = $state({ x: 0, y: 0 });
   let scrollFrame: number | undefined;
   let suppressClick = false;
@@ -126,6 +135,10 @@
     title: $t('foldersFirst'),
     disabled: commandsDisabled || !foldersFirstMove || !canMoveItems(foldersFirstMove),
     action: moveFoldersFirst
+  }, {
+    title: $t('sort'),
+    disabled: commandsDisabled || !canSortFolder((activeSide === 0 ? left : right).folder?.id ?? ''),
+    action: openSorting
   }]);
   const commands: PanelCommand[] = $derived([
     moveButton('up', $t('moveUp')),
@@ -243,6 +256,35 @@
     if (commandsDisabled || !item || item.type === 'separator' || !canEditItem(item.id)) return;
     cancelItemDrag();
     properties = { mode: 'edit', kind: item.type, side: pane.side, id: item.id, title: item.title, url: item.url };
+  }
+
+  function openSorting(): void {
+    const pane = activeSide === 0 ? left : right;
+    if (commandsDisabled || !pane.folder || !canSortFolder(pane.folder.id)) return;
+    cancelItemDrag();
+    sorting = {
+      side: pane.side,
+      parentId: pane.folder.id,
+      title: pane.folder.title || $t('untitled'),
+      ids: pane.items.filter((item) => markedIdsFor(pane).has(item.id)).map((item) => item.id)
+    };
+  }
+
+  async function sortFolder(options: SortOptions): Promise<boolean> {
+    if (!sorting || loading || mutating) return false;
+    mutating = true;
+    try {
+      return await onSortFolder({ parentId: sorting.parentId, ids: options.onlySelected ? sorting.ids : undefined, ...options });
+    } finally {
+      mutating = false;
+    }
+  }
+
+  async function closeSorting(): Promise<void> {
+    if (sorting) activeSide = sorting.side;
+    sorting = undefined;
+    await tick();
+    focusActivePane();
   }
 
   async function createSeparator(): Promise<void> {
@@ -394,7 +436,7 @@
       const movedIds = (await onMoveItems(request)).filter((id) => markedToTransfer.has(id));
       // Wait for the final tree to reach the lists before restoring moved marks.
       await tick();
-      if (!movedIds.length || sourceSide === destinationSide) return;
+      if (!movedIds.length || (sourceSide === destinationSide && request.sourceId === request.destinationId)) return;
       const sourceState = folderStates[sourceSide].get(request.sourceId);
       if (sourceState && request.sourceId !== request.destinationId) {
         const markedIds = new Set(sourceState.markedIds);
@@ -418,6 +460,7 @@
     pendingItemDrag = undefined;
     itemDrag = undefined;
     dropTarget = undefined;
+    hoveredFolder = undefined;
     if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame);
     scrollFrame = undefined;
     if (pointerId !== undefined && panels.hasPointerCapture(pointerId)) panels.releasePointerCapture(pointerId);
@@ -427,19 +470,37 @@
     if (itemDrag && (loading || mutating || (itemDrag.side === 0 ? left : right).folder?.id !== itemDrag.folderId)) cancelItemDrag();
   });
 
-  function dragDestination(): { pane: PaneView; list: HTMLElement } | undefined {
+  function dragDestination(): { pane: PaneView; list: HTMLElement; hit: Element } | undefined {
     const hit = document.elementFromPoint(dragPoint.x, dragPoint.y);
     const side = paneSideFor(hit);
     const list = hit?.closest<HTMLElement>('[data-bookmark-list]');
-    if (side === undefined || !list) return;
-    return { pane: side === 0 ? left : right, list };
+    if (side === undefined || !list || !hit) return;
+    return { pane: side === 0 ? left : right, list, hit };
   }
 
   function updateDropTarget(): void {
     dropTarget = undefined;
+    hoveredFolder = undefined;
     if (!itemDrag || loading || mutating) return;
     const destination = dragDestination();
     if (!destination?.pane.folder) return;
+    const row = destination.hit.closest<HTMLElement>('[data-bookmark-row]');
+    const folder = destination.pane.items.find((item) => item.id === row?.dataset.bookmarkId && item.type === 'folder');
+    if (folder && !$settings.hideFolderDropTargets) {
+      const request: MoveRequest = {
+        sourceId: itemDrag.folderId,
+        destinationId: folder.id,
+        ids: [...itemDrag.ids]
+      };
+      if (canMoveItems(request)) {
+        hoveredFolder = { side: destination.pane.side, id: folder.id };
+        const position = destination.hit.closest<HTMLElement>('[data-folder-drop-position]')?.dataset.folderDropPosition;
+        if (position === 'start' || position === 'end') {
+          dropTarget = { side: destination.pane.side, request: { ...request, position } };
+          return;
+        }
+      }
+    }
     const position = lists[destination.pane.side]?.insertionAt(dragPoint.y);
     if (!position) return;
     const request: MoveRequest = {
@@ -556,7 +617,7 @@
   }
 
   function focusActivePane(reveal = true): void {
-    if (properties || popupOpen || externalPopupOpen) return;
+    if (modalOpen || popupOpen || externalPopupOpen) return;
     lists[activeSide]?.focusSelected(reveal);
   }
 
@@ -622,11 +683,11 @@
       if (isHeaderControlTarget(event.relatedTarget)) return;
       await tick();
       // Browser tabs and native permission dialogs keep their own focus.
-      if (mounted && !properties && document.hasFocus() && !isHeaderControlTarget(document.activeElement) && paneSideFor(document.activeElement) === undefined) focusActivePane();
+      if (mounted && !modalOpen && document.hasFocus() && !isHeaderControlTarget(document.activeElement) && paneSideFor(document.activeElement) === undefined) focusActivePane();
     }
 
     function onDocumentMousedown(event: MouseEvent): void {
-      if (properties) return;
+      if (modalOpen) return;
       if (isHeaderControlTarget(event.target)) {
         if (popupOpen) void closePopup();
         return;
@@ -656,7 +717,7 @@
     }
 
     function onDocumentKeydown(event: KeyboardEvent): void {
-      if (properties || popupOpen || externalPopupOpen || event.isComposing || event.defaultPrevented) return;
+      if (modalOpen || popupOpen || externalPopupOpen || event.isComposing || event.defaultPrevented) return;
       if (!event.altKey && !event.metaKey) {
         // Physical letter keys keep the shortcuts available in other layouts.
         const key = event.code.startsWith('Key') ? event.code.slice(3).toLowerCase() : event.key.toLowerCase();
@@ -753,8 +814,9 @@
         markedIds={markedIdsFor(pane)}
         parentFolderId={pane.folder?.parentId}
         {loading}
-        active={activeSide === pane.side && !properties && !popupOpen && !externalPopupOpen}
+        active={activeSide === pane.side && !modalOpen && !popupOpen && !externalPopupOpen}
         dropMarkerTop={dropTarget?.side === pane.side ? dropTarget.top : undefined}
+        folderDrop={hoveredFolder?.side === pane.side ? { id: hoveredFolder.id, position: dropTarget?.side === pane.side ? dropTarget.request.position : undefined } : undefined}
         draggedIds={itemDrag?.side === pane.side ? itemDrag.ids : undefined}
         onActivate={() => (activeSide = pane.side)}
         onSelect={(id) => selectItem(pane, id)}
@@ -835,6 +897,10 @@
     onSubmit={saveProperties}
     onClose={closeProperties}
   />
+{/if}
+
+{#if sorting}
+  <SortDialog folderTitle={sorting.title} onSubmit={sortFolder} onClose={closeSorting} />
 {/if}
 
 <style>

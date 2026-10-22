@@ -1,15 +1,39 @@
 import { get, writable } from 'svelte/store';
 
-type Settings = { escapeAddresses: boolean; escapeAddressInDialog: boolean };
+type Settings = {
+  escapeAddresses: boolean;
+  escapeAddressInDialog: boolean;
+  hideFolderDropTargets: boolean;
+  sortIgnoreCase: boolean;
+  sortReverse: boolean;
+  sortSeparateFolders: boolean;
+  sortFoldersFirst: boolean;
+};
 const preferenceKey = 'total-bookmarks:settings';
-const current = writable<Settings>({ escapeAddresses: false, escapeAddressInDialog: false });
+const current = writable<Settings>({
+  escapeAddresses: false,
+  escapeAddressInDialog: false,
+  hideFolderDropTargets: false,
+  sortIgnoreCase: true,
+  sortReverse: false,
+  sortSeparateFolders: true,
+  sortFoldersFirst: true
+});
 export const settings = { subscribe: current.subscribe };
 let pendingSave = Promise.resolve();
 
 export async function initializeSettings(): Promise<void> {
   try {
     const saved = (await browser.storage.local.get(preferenceKey))[preferenceKey];
-    current.set({ escapeAddresses: saved?.escapeAddresses === true, escapeAddressInDialog: saved?.escapeAddressInDialog === true });
+    current.set({
+      escapeAddresses: saved?.escapeAddresses === true,
+      escapeAddressInDialog: saved?.escapeAddressInDialog === true,
+      hideFolderDropTargets: saved?.hideFolderDropTargets === true,
+      sortIgnoreCase: typeof saved?.sortIgnoreCase === 'boolean' ? saved.sortIgnoreCase : true,
+      sortReverse: saved?.sortReverse === true,
+      sortSeparateFolders: typeof saved?.sortSeparateFolders === 'boolean' ? saved.sortSeparateFolders : true,
+      sortFoldersFirst: typeof saved?.sortFoldersFirst === 'boolean' ? saved.sortFoldersFirst : true
+    });
   } catch (cause) {
     console.error('Failed to restore settings', cause);
   }

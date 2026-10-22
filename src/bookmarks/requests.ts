@@ -7,6 +7,7 @@ export type MoveRequest = ItemRequest & {
   destinationId: string;
   direction?: 'up' | 'down';
   afterId?: string;
+  position?: 'start' | 'end';
 };
 
 export type CreateRequest = {
@@ -23,3 +24,15 @@ export type EditRequest = {
   title: string;
   url?: string;
 };
+
+export type SortOptions = {
+  by: 'name' | 'date' | 'url' | 'domain';
+  ignoreCase: boolean;
+  reverse: boolean;
+  separateFolders: boolean;
+  foldersFirst: boolean;
+  onlySelected: boolean;
+  groupSelected: boolean;
+};
+
+export type SortRequest = SortOptions & { parentId: string; ids?: string[] };

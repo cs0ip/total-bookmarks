@@ -71,7 +71,7 @@ export async function runBookmarkActionTests({ fixtures, left, right, until, sep
     assert((await browser.bookmarks.getChildren(folders[1].id))[0].id === nested.id, 'Grouping leaves folder contents unchanged');
     const completedCalls = calls;
     await showMenu();
-    assert(action().disabled && document.activeElement === menu(), 'Already grouped folders disable the action while the menu remains keyboard accessible');
+    assert(action().disabled && document.activeElement?.getAttribute('aria-label') === 'Сортировка', 'Already grouped folders disable grouping while sorting remains keyboard accessible');
     action().click();
     assert(calls === completedCalls, 'An already grouped folder does not issue additional move requests');
     escape();
@@ -99,11 +99,160 @@ export async function runBookmarkActionTests({ fixtures, left, right, until, sep
     await until(() => !menu());
     for (const pane of [left, right]) parentRow(pane).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     await until(() => left.querySelector('h2').textContent === fixtures.title && right.querySelector('h2').textContent === fixtures.title);
+    results.push(...await runBookmarkSortTests({ fixtures, left, right, until, separators }));
     return results;
   } finally {
     release();
     browser.bookmarks.move = originalMove;
     await browser.bookmarks.removeTree(source.id);
     await browser.bookmarks.removeTree(target.id);
+  }
+}
+
+async function runBookmarkSortTests({ fixtures, left, right, until, separators }) {
+  const results = [];
+  const assert = (condition, message) => { if (!condition) throw new Error(message); results.push(message); };
+  const row = (pane, title) => [...pane.querySelectorAll('button[aria-pressed]')].find((button) => button.querySelector('.font-semibold')?.textContent.trim() === title);
+  const checkbox = (pane, title) => row(pane, title).parentElement.querySelector('input');
+  const ids = (pane) => [...pane.querySelectorAll('[data-bookmark-row]')].map((node) => node.dataset.bookmarkId).filter((id) => id !== '..');
+  const dialog = () => document.querySelector('[data-sort-dialog]');
+  const input = (name, value) => dialog().querySelector(`input[name="${name}"]${value ? `[value="${value}"]` : ''}`);
+  const source = await browser.bookmarks.create({ parentId: fixtures.id, title: 'Sorting source' });
+  const nodes = new Map();
+  let separator;
+  let separatorIndex;
+  const originalMove = browser.bookmarks.move;
+  async function openDialog() {
+    document.querySelector('button[aria-controls="actions-menu"]').click();
+    await until(() => document.querySelector('#actions-menu [aria-label="Сортировка"]'));
+    document.querySelector('#actions-menu [aria-label="Сортировка"]').click();
+    await until(() => dialog()?.open && dialog().contains(document.activeElement));
+  }
+  async function apply(expectedTitles) {
+    const expected = expectedTitles.map((title) => nodes.get(title).id);
+    if (separator) expected.splice(separatorIndex, 0, separator.id);
+    dialog().querySelector('button[type="submit"]').click();
+    await until(() => !dialog() && JSON.stringify(ids(left)) === JSON.stringify(expected) && JSON.stringify(ids(right)) === JSON.stringify(expected));
+    assert(JSON.stringify((await browser.bookmarks.getChildren(source.id)).map((node) => node.id)) === JSON.stringify(expected), 'Sorting persists the requested order in the browser bookmark tree');
+    assert(document.activeElement === row(left, 'Zulu') && checkbox(left, 'alpha').checked && checkbox(left, 'Folder Z').checked && checkbox(right, 'Beta').checked && row(right, 'ALPHA').getAttribute('aria-pressed') === 'true', 'Sorting keeps focused rows and independent marks in both panes');
+  }
+  try {
+    for (const [title, url] of [['Zulu', 'https://a.b.example.test/z'], ['Folder Z'], ...(separators ? [['separator']] : []), ['ALPHA', 'https://example.test/z'], ['alpha', 'https://example.test/a'], ['Folder A'], ['Beta', 'https://a.test/b'], ['Gamma', 'https://a.example.test/g']]) {
+      const node = await browser.bookmarks.create({ parentId: source.id, ...(title === 'separator' ? { type: 'separator' } : { title }), ...(url ? { url } : {}) });
+      if (title === 'separator') { separator = node; separatorIndex = node.index; }
+      else nodes.set(title, node);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const nested = await browser.bookmarks.create({ parentId: nodes.get('Folder Z').id, title: 'Unsorted child', url: 'about:blank' });
+    for (const pane of [left, right]) {
+      await until(() => row(pane, source.title));
+      row(pane, source.title).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    }
+    await until(() => row(left, 'Gamma') && row(right, 'Gamma'));
+    checkbox(left, 'alpha').click();
+    checkbox(left, 'Folder Z').click();
+    checkbox(right, 'Beta').click();
+    row(right, 'ALPHA').focus();
+    row(left, 'Zulu').focus();
+    const originalIds = ids(left);
+    await openDialog();
+    assert(input('sort-by', 'name').checked && input('ignore-case').checked && input('separate-folders').checked && input('folder-position', 'first').checked, 'The sorting dialog defaults to case-insensitive names with folders first');
+    assert(input('sort-order', 'forward').checked, 'Sort order defaults to forward');
+    dialog().querySelector('button[type="button"]').click();
+    await until(() => !dialog() && document.activeElement === row(left, 'Zulu'));
+    assert(JSON.stringify(ids(left)) === JSON.stringify(originalIds), 'Cancelling sorting keeps the original bookmark order');
+    await openDialog();
+    await apply(['Folder A', 'Folder Z', 'ALPHA', 'alpha', 'Beta', 'Gamma', 'Zulu']);
+    await openDialog();
+    let calls = 0;
+    browser.bookmarks.move = async (...args) => { calls++; return originalMove(...args); };
+    await apply(['Folder A', 'Folder Z', 'ALPHA', 'alpha', 'Beta', 'Gamma', 'Zulu']);
+    assert(calls === 0, 'Sorting an already sorted folder does not issue bookmark moves');
+    browser.bookmarks.move = originalMove;
+    await openDialog();
+    input('sort-order', 'reverse').click();
+    await apply(['Folder Z', 'Folder A', 'Zulu', 'Gamma', 'Beta', 'ALPHA', 'alpha']);
+    await openDialog();
+    assert(input('sort-order', 'reverse').checked, 'The sorting dialog remembers reverse order');
+    input('sort-order', 'forward').click();
+    await apply(['Folder A', 'Folder Z', 'ALPHA', 'alpha', 'Beta', 'Gamma', 'Zulu']);
+    await openDialog();
+    input('sort-by', 'date').click();
+    input('separate-folders').click();
+    await apply(['Zulu', 'Folder Z', 'ALPHA', 'alpha', 'Folder A', 'Beta', 'Gamma']);
+    await openDialog();
+    input('sort-by', 'date').click();
+    await until(() => dialog().querySelector('input[name="sort-order"]'));
+    assert(input('sort-order', 'forward').checked, 'Forward sorting puts older dates first');
+    input('sort-order', 'reverse').click();
+    await apply(['Gamma', 'Beta', 'Folder A', 'alpha', 'ALPHA', 'Folder Z', 'Zulu']);
+    await openDialog();
+    input('sort-by', 'date').click();
+    await until(() => dialog().querySelector('input[name="sort-order"]'));
+    assert(input('sort-order', 'reverse').checked, 'Shared reverse ordering persists after switching from names to dates');
+    input('sort-order', 'forward').click();
+    await apply(['Zulu', 'Folder Z', 'ALPHA', 'alpha', 'Folder A', 'Beta', 'Gamma']);
+    await openDialog();
+    assert(!input('separate-folders').checked && !input('folder-position', 'first'), 'The dialog remembers folder grouping and hides placement when grouping is off');
+    input('separate-folders').click();
+    await until(() => input('folder-position', 'last'));
+    input('folder-position', 'last').click();
+    input('sort-by', 'url').click();
+    await apply(['Zulu', 'Gamma', 'Beta', 'alpha', 'ALPHA', 'Folder Z', 'Folder A']);
+    await openDialog();
+    input('sort-by', 'url').click();
+    input('sort-order', 'reverse').click();
+    await apply(['ALPHA', 'alpha', 'Beta', 'Gamma', 'Zulu', 'Folder Z', 'Folder A']);
+    await openDialog();
+    assert(input('folder-position', 'last').checked, 'The dialog remembers the folder placement preference');
+    input('sort-by', 'domain').click();
+    assert(input('sort-order', 'reverse').checked, 'The same reverse order remains selected for domain sorting');
+    await apply(['Zulu', 'Gamma', 'ALPHA', 'alpha', 'Beta', 'Folder Z', 'Folder A']);
+    await openDialog();
+    input('sort-by', 'domain').click();
+    input('sort-order', 'forward').click();
+    await apply(['Beta', 'alpha', 'ALPHA', 'Gamma', 'Zulu', 'Folder Z', 'Folder A']);
+    await openDialog();
+    assert(!input('only-selected').checked, 'Sorting the selection is an explicit option, disabled by default');
+    input('only-selected').click();
+    input('folder-position', 'first').click();
+    const selectedMove = browser.bookmarks.move;
+    browser.bookmarks.move = async (id, destination) => {
+      assert([nodes.get('Folder Z').id, nodes.get('alpha').id].includes(id), 'Sorting the selection issues moves only for marks in the active pane');
+      return selectedMove(id, destination);
+    };
+    await apply(['Beta', 'Folder Z', 'ALPHA', 'Gamma', 'Zulu', 'alpha', 'Folder A']);
+    await openDialog();
+    assert(!input('group-selected'), 'Selection grouping is hidden when sorting the entire folder');
+    input('only-selected').click();
+    await until(() => input('group-selected'));
+    assert(!input('group-selected').checked, 'Selection grouping is disabled by default');
+    input('group-selected').click();
+    if (separator) separatorIndex++;
+    await apply(['Beta', 'Folder Z', 'alpha', 'ALPHA', 'Gamma', 'Zulu', 'Folder A']);
+    assert(ids(left)[1] === nodes.get('Folder Z').id && ids(left)[2] === nodes.get('alpha').id, 'Grouped sorting packs marks from their first original position and preserves the other items in order');
+    browser.bookmarks.move = originalMove;
+    await openDialog();
+    assert(!input('only-selected').checked, 'Reopening sorting restores the default scope of the whole folder');
+    input('ignore-case').click();
+    input('folder-position', 'first').click();
+    browser.bookmarks.move = async () => { throw new Error('Injected sorting failure'); };
+    dialog().querySelector('button[type="submit"]').click();
+    await until(() => dialog()?.querySelector('[role="alert"]') && !dialog().querySelector('button[type="submit"]').disabled);
+    assert(dialog().open && document.querySelector('main > [role="alert"]'), 'A failed sorting batch leaves the dialog open for retry and reports the failure');
+    browser.bookmarks.move = originalMove;
+    await apply(['Folder A', 'Folder Z', 'alpha', 'ALPHA', 'Beta', 'Gamma', 'Zulu']);
+    await openDialog();
+    assert(!input('ignore-case').checked, 'The dialog remembers case sensitivity independently of folder grouping');
+    input('ignore-case').click();
+    dialog().querySelector('button[type="button"]').click();
+    await until(() => !dialog());
+    assert((await browser.bookmarks.getChildren(nodes.get('Folder Z').id))[0].id === nested.id, 'Sorting changes only direct children and keeps nested folder contents unchanged');
+    for (const pane of [left, right]) row(pane, '..').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await until(() => left.querySelector('h2').textContent === fixtures.title && right.querySelector('h2').textContent === fixtures.title);
+    return results;
+  } finally {
+    browser.bookmarks.move = originalMove;
+    await browser.bookmarks.removeTree(source.id);
   }
 }

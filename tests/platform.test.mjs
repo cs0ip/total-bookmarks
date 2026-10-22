@@ -180,3 +180,150 @@ for (const target of ['firefox', 'chrome']) {
     assert.equal(reads, target === 'chrome' ? 4 : 0);
   });
 }
+
+function sorted(items, options = {}, ids = []) {
+  const { planSort } = load('src/actions/sort.ts');
+  const moves = planSort(items, { by: 'name', ignoreCase: true, separateFolders: true, foldersFirst: true, ...options }, 'en', ids);
+  const result = [...items];
+  for (const { id, index } of moves) {
+    const oldIndex = result.findIndex((item) => item.id === id);
+    assert.ok(oldIndex >= 0 && index >= 0 && index < result.length, 'Sorting moves existing items to valid positions');
+    if (options.onlySelected) assert.ok(ids.includes(id), 'Sorting the selection moves only selected IDs');
+    result.splice(index, 0, result.splice(oldIndex, 1)[0]);
+  }
+  assert.equal(planSort(result, { by: 'name', ignoreCase: true, separateFolders: true, foldersFirst: true, ...options }, 'en', ids).length, 0);
+  return result.map((item) => item.id);
+}
+
+test('Name sorting preserves case-insensitive ties, supports case sensitivity and keeps separator slots', () => {
+  const items = [
+    { id: 'upper', title: 'ALPHA', type: 'bookmark' },
+    { id: 'separator', title: '', type: 'separator' },
+    { id: 'lower', title: 'alpha', type: 'bookmark' },
+    { id: 'accent', title: 'álpha', type: 'bookmark' },
+    { id: 'first', title: 'aardvark', type: 'bookmark' }
+  ];
+  assert.deepEqual(sorted(items), ['first', 'separator', 'upper', 'lower', 'accent']);
+  assert.deepEqual(sorted(items, { ignoreCase: false }), ['first', 'separator', 'lower', 'upper', 'accent']);
+  assert.deepEqual(sorted(items, { reverse: true }), ['accent', 'separator', 'upper', 'lower', 'first']);
+  assert.deepEqual(sorted(items, { reverse: true, ignoreCase: false }), ['accent', 'separator', 'upper', 'lower', 'first']);
+  assert.deepEqual(items.map((item) => item.id), ['upper', 'separator', 'lower', 'accent', 'first']);
+});
+
+test('Folders sort within their own group at either end, or together with bookmarks', () => {
+  const items = [
+    { id: 'z-folder', title: 'Zulu', type: 'folder' },
+    { id: 'b-bookmark', title: 'Bravo', type: 'bookmark' },
+    { id: 'a-folder', title: 'Alpha', type: 'folder' },
+    { id: 'c-bookmark', title: 'Charlie', type: 'bookmark' }
+  ];
+  assert.deepEqual(sorted(items), ['a-folder', 'z-folder', 'b-bookmark', 'c-bookmark']);
+  assert.deepEqual(sorted(items, { foldersFirst: false }), ['b-bookmark', 'c-bookmark', 'a-folder', 'z-folder']);
+  assert.deepEqual(sorted(items, { separateFolders: false }), ['a-folder', 'b-bookmark', 'c-bookmark', 'z-folder']);
+  assert.deepEqual(sorted(items, { reverse: true }), ['z-folder', 'a-folder', 'c-bookmark', 'b-bookmark']);
+  assert.deepEqual(sorted(items, { reverse: true, foldersFirst: false }), ['c-bookmark', 'b-bookmark', 'z-folder', 'a-folder']);
+  assert.deepEqual(sorted(items, { reverse: true, separateFolders: false }), ['z-folder', 'c-bookmark', 'b-bookmark', 'a-folder']);
+});
+
+test('URL and domain sorting preserve relative folder order regardless of folder grouping', () => {
+  const items = [
+    { id: 'z-folder', title: 'Zulu', type: 'folder' },
+    { id: 'b-bookmark', title: 'Bravo', type: 'bookmark', url: 'https://z.example.test/' },
+    { id: 'separator', title: '', type: 'separator' },
+    { id: 'a-folder', title: 'Alpha', type: 'folder' },
+    { id: 'a-bookmark', title: 'Alpha', type: 'bookmark', url: 'https://a.test/' }
+  ];
+  for (const by of ['url', 'domain']) {
+    assert.deepEqual(sorted(items, { by }), ['z-folder', 'a-folder', 'separator', 'a-bookmark', 'b-bookmark']);
+    assert.deepEqual(sorted(items, { by, reverse: true }), ['z-folder', 'a-folder', 'separator', 'b-bookmark', 'a-bookmark']);
+    assert.deepEqual(sorted(items, { by, foldersFirst: false }), ['a-bookmark', 'b-bookmark', 'separator', 'z-folder', 'a-folder']);
+    for (const foldersFirst of [true, false]) {
+      assert.deepEqual(sorted(items, { by, separateFolders: false, foldersFirst }), ['a-bookmark', 'b-bookmark', 'separator', 'z-folder', 'a-folder']);
+    }
+    assert.deepEqual(sorted(items.filter((item) => item.type === 'folder'), { by }), ['z-folder', 'a-folder']);
+  }
+});
+
+test('Sorting only selected items keeps unselected entries and separators in their slots', () => {
+  const items = [
+    { id: 'z-bookmark', title: 'Zulu', type: 'bookmark', dateAdded: 100, url: 'https://a.example.test/' },
+    { id: 'fixed-folder', title: 'Fixed folder', type: 'folder' },
+    { id: 'separator', title: '', type: 'separator' },
+    { id: 'z-folder', title: 'Z folder', type: 'folder', dateAdded: 200 },
+    { id: 'b-bookmark', title: 'Bravo', type: 'bookmark', dateAdded: 300, url: 'https://b.test/' },
+    { id: 'fixed-bookmark', title: 'Fixed bookmark', type: 'bookmark', url: 'about:blank' },
+    { id: 'a-folder', title: 'A folder', type: 'folder', dateAdded: 400 }
+  ];
+  const ids = ['a-folder', 'b-bookmark', 'z-folder', 'z-bookmark', 'separator'];
+  const options = { onlySelected: true };
+  assert.deepEqual(sorted(items, options, ids), ['a-folder', 'fixed-folder', 'separator', 'z-folder', 'b-bookmark', 'fixed-bookmark', 'z-bookmark']);
+  assert.deepEqual(sorted(items, { ...options, reverse: true }, ids), ['z-folder', 'fixed-folder', 'separator', 'a-folder', 'z-bookmark', 'fixed-bookmark', 'b-bookmark']);
+  assert.deepEqual(sorted(items, { ...options, foldersFirst: false }, ids), ['b-bookmark', 'fixed-folder', 'separator', 'z-bookmark', 'a-folder', 'fixed-bookmark', 'z-folder']);
+  assert.deepEqual(sorted(items, { ...options, separateFolders: false }, ids), ['a-folder', 'fixed-folder', 'separator', 'b-bookmark', 'z-folder', 'fixed-bookmark', 'z-bookmark']);
+  assert.deepEqual(sorted(items, { ...options, by: 'date', separateFolders: false, reverse: true }, ids), ['a-folder', 'fixed-folder', 'separator', 'b-bookmark', 'z-folder', 'fixed-bookmark', 'z-bookmark']);
+  assert.deepEqual(sorted(items, { ...options, by: 'url' }, ids), ['z-folder', 'fixed-folder', 'separator', 'a-folder', 'z-bookmark', 'fixed-bookmark', 'b-bookmark']);
+  assert.deepEqual(sorted(items, { ...options, by: 'domain' }, ids), ['z-folder', 'fixed-folder', 'separator', 'a-folder', 'b-bookmark', 'fixed-bookmark', 'z-bookmark']);
+  for (const selection of [[], ['z-bookmark'], ['separator'], ['missing']]) {
+    assert.deepEqual(sorted(items, options, selection), items.map((item) => item.id));
+  }
+  assert.deepEqual(sorted(items, { onlySelected: false }, []), sorted(items));
+});
+
+test('Grouping a sorted selection packs it from its first slot and keeps other items in order', () => {
+  const items = [
+    { id: 'prefix', title: 'Prefix', type: 'bookmark' },
+    { id: 'z-bookmark', title: 'Zulu', type: 'bookmark', dateAdded: 100, url: 'https://a.example.test/' },
+    { id: 'other-folder', title: 'Other folder', type: 'folder' },
+    { id: 'separator', title: '', type: 'separator' },
+    { id: 'z-folder', title: 'Z folder', type: 'folder', dateAdded: 200 },
+    { id: 'b-bookmark', title: 'Bravo', type: 'bookmark', dateAdded: 300, url: 'https://b.test/' },
+    { id: 'other-bookmark', title: 'Other bookmark', type: 'bookmark' },
+    { id: 'a-folder', title: 'A folder', type: 'folder', dateAdded: 400 },
+    { id: 'selected-separator', title: '', type: 'separator' },
+    { id: 'suffix', title: 'Suffix', type: 'bookmark' }
+  ];
+  const ids = ['a-folder', 'b-bookmark', 'z-folder', 'z-bookmark', 'selected-separator'];
+  const options = { onlySelected: true, groupSelected: true };
+  const packed = (group) => ['prefix', ...group, 'selected-separator', 'other-folder', 'separator', 'other-bookmark', 'suffix'];
+  assert.deepEqual(sorted(items, options, ids), packed(['a-folder', 'z-folder', 'b-bookmark', 'z-bookmark']));
+  assert.deepEqual(sorted(items, { ...options, reverse: true }, ids), packed(['z-folder', 'a-folder', 'z-bookmark', 'b-bookmark']));
+  assert.deepEqual(sorted(items, { ...options, foldersFirst: false }, ids), packed(['b-bookmark', 'z-bookmark', 'a-folder', 'z-folder']));
+  assert.deepEqual(sorted(items, { ...options, separateFolders: false }, ids), packed(['a-folder', 'b-bookmark', 'z-folder', 'z-bookmark']));
+  assert.deepEqual(sorted(items, { ...options, by: 'date', separateFolders: false, reverse: true }, ids), packed(['a-folder', 'b-bookmark', 'z-folder', 'z-bookmark']));
+  assert.deepEqual(sorted(items, { ...options, by: 'url' }, ids), packed(['z-folder', 'a-folder', 'z-bookmark', 'b-bookmark']));
+  assert.deepEqual(sorted(items, { ...options, by: 'domain' }, ids), packed(['z-folder', 'a-folder', 'b-bookmark', 'z-bookmark']));
+  for (const selection of [[], ['z-bookmark'], ['selected-separator'], ['missing']]) {
+    assert.deepEqual(sorted(items, options, selection), items.map((item) => item.id));
+  }
+  assert.deepEqual(sorted(items, options, ['separator', 'b-bookmark', 'a-folder']), ['prefix', 'z-bookmark', 'other-folder', 'separator', 'a-folder', 'b-bookmark', 'z-folder', 'other-bookmark', 'selected-separator', 'suffix']);
+  assert.deepEqual(sorted(items, { groupSelected: true, onlySelected: false }, ids), sorted(items));
+});
+
+test('Date sorting uses creation time, keeps equal dates stable and places missing dates last', () => {
+  const items = [
+    { id: 'new', title: 'New', type: 'bookmark', dateAdded: 300 },
+    { id: 'missing', title: 'Missing', type: 'folder' },
+    { id: 'old1', title: 'Old', type: 'bookmark', dateAdded: 100 },
+    { id: 'old2', title: 'Old', type: 'folder', dateAdded: 100 }
+  ];
+  assert.deepEqual(sorted(items, { by: 'date', separateFolders: false }), ['old1', 'old2', 'new', 'missing']);
+  assert.deepEqual(sorted(items, { by: 'date', separateFolders: false, reverse: true }), ['new', 'old1', 'old2', 'missing']);
+  assert.deepEqual(sorted(items, { by: 'date', reverse: true }), ['old2', 'missing', 'new', 'old1']);
+});
+
+test('URL sorting compares full addresses; domain sorting puts fewer hostname parts first', () => {
+  const items = [
+    { id: 'deep', title: '', type: 'bookmark', url: 'https://a.b.example.com/a' },
+    { id: 'sub', title: '', type: 'bookmark', url: 'https://a.example.com/a' },
+    { id: 'base-z', title: '', type: 'bookmark', url: 'https://example.com/z' },
+    { id: 'base-a', title: '', type: 'bookmark', url: 'https://example.com/a' },
+    { id: 'other', title: '', type: 'bookmark', url: 'https://b.test/a' },
+    { id: 'invalid', title: '', type: 'bookmark', url: 'bad URL' },
+    { id: 'local', title: '', type: 'bookmark', url: 'about:blank' }
+  ];
+  assert.deepEqual(sorted(items, { by: 'url' }), ['local', 'invalid', 'deep', 'sub', 'other', 'base-a', 'base-z']);
+  assert.deepEqual(sorted(items, { by: 'domain' }), ['other', 'base-a', 'base-z', 'sub', 'deep', 'local', 'invalid']);
+  assert.deepEqual(sorted(items, { by: 'url', reverse: true }), ['base-z', 'base-a', 'other', 'sub', 'deep', 'invalid', 'local']);
+  assert.deepEqual(sorted(items, { by: 'domain', reverse: true }), ['deep', 'sub', 'base-z', 'base-a', 'other', 'invalid', 'local']);
+  assert.deepEqual(sorted([], { by: 'domain' }), []);
+});

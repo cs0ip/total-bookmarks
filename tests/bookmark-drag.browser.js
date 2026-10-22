@@ -8,6 +8,8 @@ let styles;
 let expectedMarker;
 let scrollBefore;
 let currentCase;
+let insideTarget;
+let insideSide;
 
 async function until(check) {
   const deadline = Date.now() + 10000;
@@ -79,6 +81,26 @@ export async function prepare() {
 export async function startCase(name) {
   currentCase = name;
   expectedMarker = undefined;
+  if (name.startsWith('folder-')) {
+    const container = await browser.bookmarks.create({ parentId: fixtures.id, title: `Inside ${name}` });
+    await browser.bookmarks.create({ parentId: container.id, title: 'Inside A', url: 'about:blank' });
+    const groupFolder = await browser.bookmarks.create({ parentId: container.id, title: 'Inside B' });
+    insideTarget = await browser.bookmarks.create({ parentId: name === 'folder-cycle' ? groupFolder.id : container.id, title: 'Inside target' });
+    if (name !== 'folder-empty') {
+      for (const title of ['Inside T1', 'Inside T2']) await browser.bookmarks.create({ parentId: insideTarget.id, title, url: 'about:blank' });
+    }
+    for (const side of [0, 1]) {
+      list(side).style.height = '350px';
+      panes[side].querySelector(`[data-bookmark-breadcrumb="${fixtures.id}"]`).click();
+      await until(() => panes[side].querySelector('h2').textContent === fixtures.title);
+      await open(side, container.title);
+    }
+    insideSide = name === 'folder-cross' || name === 'folder-cycle' ? 1 : 0;
+    if (name === 'folder-cycle') await open(1, 'Inside B');
+    await check(0, 'Inside A', true);
+    await check(0, 'Inside B', true);
+    return { start: position(0, 'Inside A'), end: position(insideSide, 'Inside target', 'before') };
+  }
   if (name === 'reorder') {
     await check(0, 'Drag B', true);
     await check(0, 'Drag D', true);
@@ -140,6 +162,10 @@ export async function verifyHover(name) {
   await new Promise((resolve) => setTimeout(resolve, name === 'scroll' ? 300 : 30));
   const marker = document.querySelector('[data-drop-marker]');
   const preview = document.querySelector('[data-drag-preview]');
+  if (name.startsWith('folder-')) {
+    const overlay = row(insideSide, 'Inside target').parentElement.querySelector('[data-folder-drop]');
+    return assert(preview && (name === 'folder-cycle' ? !marker && !overlay : marker && overlay), `Native ${name} dragging shows folder destinations only for valid moves`);
+  }
   if (name === 'parent') return assert(!marker && !preview, 'The parent entry cannot start a mouse drag');
   if (name === 'cycle' || name === 'outside') return assert(preview && !marker, `A ${name} drag target has no insertion marker`);
   if (name === 'scroll') return assert(marker && preview && list(0).scrollTop > scrollBefore + 20, 'Holding a dragged row near the viewport edge scrolls only its destination list and updates the marker');
@@ -147,9 +173,42 @@ export async function verifyHover(name) {
     `Native ${name} dragging displays an insertion line at the exact row boundary`);
 }
 
+export function folderDropPoint(name) {
+  if (!name.startsWith('folder-') || name === 'folder-cycle') return;
+  const targetRow = row(insideSide, 'Inside target').parentElement;
+  const overlay = targetRow.querySelector('[data-folder-drop]');
+  const bounds = targetRow.getBoundingClientRect();
+  const group = overlay.getBoundingClientRect();
+  assert(Math.abs(group.right - bounds.right + 6) < 1 && Math.abs((group.top + group.bottom - bounds.top - bounds.bottom) / 2) < 1 && group.top >= bounds.top + 3 && group.bottom <= bounds.bottom - 3,
+    'Folder drop controls are centered vertically with small top, bottom and right insets');
+  const zones = [...overlay.querySelectorAll('[data-folder-drop-position]')];
+  assert(zones.map((node) => node.dataset.folderDropPosition).join(',') === 'end,start' && getComputedStyle(overlay.firstElementChild).whiteSpace === 'pre-line',
+    'The two-line move label is followed by end and start destinations');
+  const position = name === 'folder-start' ? 'start' : 'end';
+  const zone = overlay.querySelector(`[data-folder-drop-position="${position}"]`).getBoundingClientRect();
+  return { x: Math.round((zone.left + zone.right) / 2), y: Math.round((zone.top + zone.bottom) / 2) };
+}
+
+export async function verifyFolderHover() {
+  await until(() => document.querySelector('[data-folder-drop-position][data-active="true"]') && !document.querySelector('[data-drop-marker]'));
+  return 'Hovering a folder destination highlights the rectangle and hides the insertion marker';
+}
+
 export async function verifyDrop(name) {
-  await until(() => !document.querySelector('[data-drag-preview]') && !document.querySelector('[data-drop-marker]'));
+  await until(() => !document.querySelector('[data-drag-preview]') && !document.querySelector('[data-drop-marker]') && !document.querySelector('[data-folder-drop]'));
   const busy = () => [...document.querySelectorAll('[aria-label="Команды"] button')].every((button) => button.disabled);
+  if (name.startsWith('folder-')) {
+    if (name === 'folder-cycle' || name === 'folder-cancel') {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const children = await browser.bookmarks.getChildren(insideTarget.id);
+      return assert(children.map((item) => item.title).join(',') === 'Inside T1,Inside T2' && row(0, 'Inside A') && row(0, 'Inside B'), `Native ${name} dragging leaves folder contents unchanged`);
+    }
+    await until(() => matches(0, ['Inside target']) && !busy());
+    await open(insideSide, 'Inside target');
+    const expected = name === 'folder-empty' ? ['Inside A', 'Inside B'] : name === 'folder-start' ? ['Inside A', 'Inside B', 'Inside T1', 'Inside T2'] : ['Inside T1', 'Inside T2', 'Inside A', 'Inside B'];
+    await until(() => matches(insideSide, expected));
+    return assert(checkbox(insideSide, 'Inside A').checked && checkbox(insideSide, 'Inside B').checked, `Native ${name} dropping moves a mixed group inside in source order and retains its marks`);
+  }
   if (name === 'reorder') {
     await until(() => matches(0, ['Drag B', 'Drag D', 'Drag A', 'Drag C']) && !busy());
     return assert(checkbox(0, 'Drag B').checked && checkbox(0, 'Drag D').checked && document.activeElement === row(0, 'Drag D'), 'Native within-pane dragging packs nonadjacent folder and bookmark marks in order while preserving focus');

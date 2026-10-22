@@ -129,7 +129,7 @@ try {
   count++;
   await evaluate("import('./bookmark-drag.browser.js').then(async module => { window.dragTests = module; await module.prepare(); })");
   try {
-    for (const name of ['reorder', 'right', 'left', 'empty', 'cycle', 'escape', 'outside', 'parent', 'same-folder', 'scroll']) {
+    for (const name of ['reorder', 'right', 'left', 'empty', 'cycle', 'escape', 'outside', 'parent', 'same-folder', 'scroll', 'folder-end', 'folder-start', 'folder-empty', 'folder-cross', 'folder-cycle', 'folder-cancel']) {
       const { start, end } = await evaluate(`window.dragTests.startCase(${JSON.stringify(name)})`);
       await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...start });
       await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: 'left', buttons: 1, clickCount: 1 });
@@ -140,7 +140,13 @@ try {
         });
       }
       console.log(`PASS ${await evaluate(`window.dragTests.verifyHover(${JSON.stringify(name)})`)}`);
-      if (name === 'escape' || name === 'scroll') {
+      const inside = await evaluate(`window.dragTests.folderDropPoint(${JSON.stringify(name)})`);
+      if (inside) {
+        await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...inside, button: 'left', buttons: 1 });
+        console.log(`PASS ${await evaluate('window.dragTests.verifyFolderHover()')}`);
+        Object.assign(end, inside);
+      }
+      if (name === 'escape' || name === 'scroll' || name === 'folder-cycle' || name === 'folder-cancel') {
         await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
         await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
       }

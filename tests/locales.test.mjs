@@ -105,6 +105,8 @@ test('Storage failures are logged and leave the interface usable', async () => {
   assert.deepEqual(app.errors.map(([message]) => message), ['Failed to restore the language preference', 'Failed to save the language preference']);
 });
 
+const sortDefaults = { sortIgnoreCase: true, sortReverse: false, sortSeparateFolders: true, sortFoldersFirst: true };
+
 async function initializeSettings(saved, write) {
   const key = 'total-bookmarks:settings';
   const values = new Map(saved === undefined ? [] : [[key, saved]]);
@@ -123,18 +125,19 @@ async function initializeSettings(saved, write) {
   return { ...exports, values, key };
 }
 
-test('Address escaping defaults off and restores each valid preference independently', async () => {
-  for (const saved of [undefined, null, {}, { escapeAddresses: 'true', escapeAddressInDialog: 1 }]) {
+test('Settings restore defaults and each valid preference independently', async () => {
+  const defaults = { escapeAddresses: false, escapeAddressInDialog: false, hideFolderDropTargets: false, ...sortDefaults };
+  for (const saved of [undefined, null, {}, { escapeAddresses: 'true', escapeAddressInDialog: 1, hideFolderDropTargets: 'true', sortIgnoreCase: 'false', sortReverse: 'true', sortSeparateFolders: 0, sortFoldersFirst: null }]) {
     const api = await initializeSettings(saved);
-    assert.deepEqual(JSON.parse(JSON.stringify(stores.get(api.settings))), { escapeAddresses: false, escapeAddressInDialog: false });
+    assert.deepEqual(JSON.parse(JSON.stringify(stores.get(api.settings))), defaults);
   }
-  for (const saved of [{ escapeAddresses: true, escapeAddressInDialog: false }, { escapeAddresses: false, escapeAddressInDialog: true }]) {
+  for (const saved of [{ escapeAddresses: true, escapeAddressInDialog: false }, { escapeAddresses: false, escapeAddressInDialog: true }, { hideFolderDropTargets: true }, { sortIgnoreCase: false }, { sortReverse: true }, { sortSeparateFolders: false }, { sortFoldersFirst: false }]) {
     const api = await initializeSettings(saved);
-    assert.deepEqual(JSON.parse(JSON.stringify(stores.get(api.settings))), saved);
+    assert.deepEqual(JSON.parse(JSON.stringify(stores.get(api.settings))), { ...defaults, ...saved });
   }
 });
 
-test('Rapid independent address preference changes persist in order and survive initialization', async () => {
+test('Rapid independent preference changes persist in order and survive initialization', async () => {
   const writes = [];
   const api = await initializeSettings(undefined, async (value) => {
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -142,13 +145,25 @@ test('Rapid independent address preference changes persist in order and survive 
   });
   const first = api.setSetting('escapeAddresses', true);
   const second = api.setSetting('escapeAddressInDialog', true);
-  const third = api.setSetting('escapeAddresses', false);
-  await Promise.all([first, second, third]);
+  const third = api.setSetting('hideFolderDropTargets', true);
+  const fourth = api.setSetting('escapeAddresses', false);
+  await Promise.all([first, second, third, fourth]);
   assert.deepEqual(writes, [
-    { escapeAddresses: true, escapeAddressInDialog: false },
-    { escapeAddresses: true, escapeAddressInDialog: true },
-    { escapeAddresses: false, escapeAddressInDialog: true }
+    { escapeAddresses: true, escapeAddressInDialog: false, hideFolderDropTargets: false, ...sortDefaults },
+    { escapeAddresses: true, escapeAddressInDialog: true, hideFolderDropTargets: false, ...sortDefaults },
+    { escapeAddresses: true, escapeAddressInDialog: true, hideFolderDropTargets: true, ...sortDefaults },
+    { escapeAddresses: false, escapeAddressInDialog: true, hideFolderDropTargets: true, ...sortDefaults }
   ]);
   const restored = await initializeSettings(api.values.get(api.key));
   assert.deepEqual(JSON.parse(JSON.stringify(stores.get(restored.settings))), writes.at(-1));
+});
+
+test('Sorting preferences retain their values after saving and reopening', async () => {
+  const api = await initializeSettings({ escapeAddresses: true });
+  await Promise.all(Object.keys(sortDefaults).map((key) => api.setSetting(key, false)));
+  await api.setSetting('sortReverse', true);
+  const restored = await initializeSettings(api.values.get(api.key));
+  const saved = JSON.parse(JSON.stringify(stores.get(restored.settings)));
+  assert.equal(saved.escapeAddresses, true);
+  for (const key of Object.keys(sortDefaults)) assert.equal(saved[key], key === 'sortReverse');
 });
